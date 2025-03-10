@@ -2,10 +2,6 @@
 
 #include "stdlib.h"
 
-typedef unsigned char uint8_t;
-typedef unsigned int uint32_t;
-typedef uint32_t size_t;
-
 extern char __bss[], __bss_end[], __stack_top[];
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
@@ -32,18 +28,9 @@ void putchar(const char ch) {
 	sbi_call((long) ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
 }
 
-
-void* memset(void *buf, char c, size_t n) {
-	uint8_t *p = (uint8_t *) buf;
-	while (n--)
-		*p++ = c;
-	return buf;
-}
-
 void kmain(void) {
 	memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
-	printf("\n\n+++ OUT OF CHEESE ERROR +++\n");
 	printf("1 + 2 = %d, %x\n", 1 + 2, 0x00c0ffee);
 
 	for(;;) {
