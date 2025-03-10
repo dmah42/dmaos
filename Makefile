@@ -9,8 +9,8 @@ qflags := -machine virt -bios default -nographic -serial mon:stdio --no-reboot
 
 all: kernel.elf
 
-kernel.elf: kernel.c kernel.ld
-	$(cc) $(cflags) $(kflags) -o $@ $<
+kernel.elf: kernel.c kernel.ld stdlib.c
+	$(cc) $(cflags) $(kflags) -o $@ $(filter-out kernel.ld, $^)
 
 run: kernel.elf
 	$(qemu) $(qflags) -kernel kernel.elf

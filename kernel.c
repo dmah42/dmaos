@@ -1,5 +1,7 @@
 #include "kernel.h"
 
+#include "stdlib.h"
+
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef uint32_t size_t;
@@ -41,10 +43,9 @@ void* memset(void *buf, char c, size_t n) {
 void kmain(void) {
 	memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
-	const char *s = "\n\nHello from dmaos\n";
-	for (int i = 0; s[i] != '\0'; ++i) {
-		putchar(s[i]);
-	}
+	printf("\n\n+++ OUT OF CHEESE ERROR +++\n");
+	printf("1 + 2 = %d, %x\n", 1 + 2, 0x00c0ffee);
+
 	for(;;) {
 		__asm__ __volatile__("wfi");
 	}
