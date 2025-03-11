@@ -1,5 +1,6 @@
 #include "kernel.h"
 
+#include "memory.h"
 #include "stdlib.h"
 
 extern char __bss[], __bss_end[], __stack_top[];
@@ -112,6 +113,11 @@ void kmain(void) {
 
 	// Tell the CPU where the exception handler is
 	WRITE_CSR(stvec, (uint32_t) kentry);
+
+	paddr_t paddr0 = alloc_pages(2);
+	paddr_t paddr1 = alloc_pages(1);
+	printf("paddr0 %x\n", paddr0);
+	printf("paddr1 %x\n", paddr1);
 
 	// Say hello
 	printf("1 + 2 = %d, %x\n", 1 + 2, 0x00c0ffee);

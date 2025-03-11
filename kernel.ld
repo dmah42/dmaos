@@ -25,4 +25,10 @@ SECTIONS {
   . = ALIGN(4);
   . += 128 * 1024;  /* 128KB stack */
   __stack_top = .;
+
+  /* Some memory to be managed by the kernel */
+  . = ALIGN(4096);
+  __free_ram = .;
+  . += 64 * 1024 * 1024; /* 64 MB RAM */
+  __free_ram_end = .;
 }
