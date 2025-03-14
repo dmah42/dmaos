@@ -10,12 +10,12 @@ struct Process *idle_proc = NULL;
 extern char __kernel_base[], __free_ram_end[];
 
 void process_init() {
-  idle_proc = create_process(0);
+  idle_proc = create_process(NULL, 0);
   idle_proc->pid = 0;
   current_proc = idle_proc;
 }
 
-struct Process *create_process(uint32_t pc) {
+struct Process *create_process(const void *image, size_t image_size) {
   // Find an unused PCB
   struct Process *proc = NULL;
   int i;
@@ -33,25 +33,37 @@ struct Process *create_process(uint32_t pc) {
   // Stack callee-saved registers. These register values will be restored in
   // the first context switch in switch_context.
   uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
-  *--sp = 0;            // s11
-  *--sp = 0;            // s10
-  *--sp = 0;            // s9
-  *--sp = 0;            // s8
-  *--sp = 0;            // s7
-  *--sp = 0;            // s6
-  *--sp = 0;            // s5
-  *--sp = 0;            // s4
-  *--sp = 0;            // s3
-  *--sp = 0;            // s2
-  *--sp = 0;            // s1
-  *--sp = 0;            // s0
-  *--sp = (uint32_t)pc; // ra
+  *--sp = 0;                    // s11
+  *--sp = 0;                    // s10
+  *--sp = 0;                    // s9
+  *--sp = 0;                    // s8
+  *--sp = 0;                    // s7
+  *--sp = 0;                    // s6
+  *--sp = 0;                    // s5
+  *--sp = 0;                    // s4
+  *--sp = 0;                    // s3
+  *--sp = 0;                    // s2
+  *--sp = 0;                    // s1
+  *--sp = 0;                    // s0
+  *--sp = (uint32_t)user_entry; // ra
 
   // Map kernel pages.
   uint32_t *page_table = (uint32_t *)alloc_pages(1);
   for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end;
        paddr += PAGE_SIZE) {
     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+  }
+
+  // Map user pages.
+  for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+    paddr_t page = alloc_pages(1);
+
+    size_t remain = image_size - off;
+    size_t copy_size = PAGE_SIZE <= remain ? PAGE_SIZE : remain;
+
+    memcpy((void *)page, image + off, copy_size);
+    map_page(page_table, USER_BASE + off, page,
+             PAGE_U | PAGE_R | PAGE_W | PAGE_X);
   }
 
   // Initialize Process

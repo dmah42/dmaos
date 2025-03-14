@@ -17,6 +17,6 @@ struct Process {
 
 void process_init();
 
-struct Process *create_process(uint32_t pc);
+struct Process *create_process(const void *image, size_t image_size);
 
 void yield();

@@ -5,6 +5,7 @@
 #include "stdlib.h"
 
 extern char __bss[], __bss_end[], __stack_top[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid, long eid) {
@@ -146,8 +147,8 @@ void kmain(void) {
 
   process_init();
 
-  proc_a = create_process((uint32_t)proc_a_entry);
-  proc_b = create_process((uint32_t)proc_b_entry);
+  create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size);
+
   yield();
   PANIC("switched to idle process");
 
@@ -174,4 +175,14 @@ void handle_trap(struct trap_frame *f) {
 
   PANIC("unexpected trap:\n  scause %x\n  stval %x\n  sepc %x\n", scause, stval,
         user_pc);
+}
+
+#define SSTATUS_SPIE (1 << 5)
+
+__attribute__((naked)) void user_entry() {
+  __asm__ __volatile__("csrw sepc, %[sepc]\n"
+                       "csrw sstatus, %[sstatus]\n"
+                       "sret\n"
+                       :
+                       : [sepc] "r"(USER_BASE), [sstatus] "r"(SSTATUS_SPIE));
 }

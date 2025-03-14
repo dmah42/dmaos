@@ -41,23 +41,27 @@ struct trap_frame {
   uint32_t sp;
 } __attribute__((packed));
 
-#define READ_CSR(reg)                                                         \
-  ({                                                                          \
-    unsigned long __tmp;                                                      \
-    __asm__ __volatile__("csrr %0, " #reg : "=r"(__tmp));                     \
-    __tmp;                                                                    \
+#define READ_CSR(reg)                                                          \
+  ({                                                                           \
+    unsigned long __tmp;                                                       \
+    __asm__ __volatile__("csrr %0, " #reg : "=r"(__tmp));                      \
+    __tmp;                                                                     \
   })
 
-#define WRITE_CSR(reg, value)                                                 \
-  do {                                                                        \
-    uint32_t __tmp = (value);                                                 \
-    __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                   \
-  } while (0)                                                                 \
+#define WRITE_CSR(reg, value)                                                  \
+  do {                                                                         \
+    uint32_t __tmp = (value);                                                  \
+    __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                    \
+  } while (0)
 
-#define PANIC(fmt, ...)                                                       \
-  do {                                                                        \
-    printf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                        \
-    printf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);            \
-    while (1) {}                                                              \
-  } while(0)
+#define PANIC(fmt, ...)                                                        \
+  do {                                                                         \
+    printf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                         \
+    printf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);             \
+    while (1) {                                                                \
+    }                                                                          \
+  } while (0)
 
+#define USER_BASE 0x1000000
+
+void user_entry();
