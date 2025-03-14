@@ -1,10 +1,13 @@
 #include "process.h"
 
 #include "kernel.h"
+#include "memory.h"
 
 struct Process procs[PROCS_MAX];
 struct Process *current_proc = NULL;
 struct Process *idle_proc = NULL;
+
+extern char __kernel_base[], __free_ram_end[];
 
 void process_init() {
   idle_proc = create_process(0);
@@ -44,9 +47,17 @@ struct Process *create_process(uint32_t pc) {
   *--sp = 0;            // s0
   *--sp = (uint32_t)pc; // ra
 
+  // Map kernel pages.
+  uint32_t *page_table = (uint32_t *)alloc_pages(1);
+  for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end;
+       paddr += PAGE_SIZE) {
+    map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+  }
+
   // Initialize Process
   proc->pid = i + 1;
   proc->state = PROCSTATE_RUNNABLE;
+  proc->page_table = page_table;
   proc->sp = (uint32_t)sp;
   return proc;
 }
@@ -112,9 +123,13 @@ void yield() {
   // Store a pointer to the kernel stack for the current process before
   // switching (see exception handler for details).
   __asm__ __volatile__(
+      "sfence.vma\n"
+      "csrw satp, %[satp]\n"
+      "sfence.vma\n"
       "csrw sscratch, %[sscratch]\n"
       :
-      : [sscratch] "r"((uint32_t)&next->stack[sizeof(next->stack)]));
+      : [satp] "r"(SATP_SV32 | PAGE_TABLE_TO_INDEX(next->page_table)),
+        [sscratch] "r"((uint32_t)&next->stack[sizeof(next->stack)]));
 
   // SWITCH!
   struct Process *prev = current_proc;
