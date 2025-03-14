@@ -1,0 +1,8 @@
+#pragma once
+
+enum Syscall {
+  SYSCALL_UNKNOWN = 0,
+  SYSCALL_PUTCHAR,
+  SYSCALL_GETCHAR,
+  SYSCALL_EXIT,
+};

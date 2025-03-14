@@ -65,3 +65,7 @@ struct trap_frame {
 #define USER_BASE 0x1000000
 
 void user_entry();
+
+// syscall implementations
+void putchar(const char ch);
+long getchar(void);

@@ -3,6 +3,9 @@
 #include "memory.h"
 #include "process.h"
 #include "stdlib.h"
+#include "syscall.h"
+
+#define SCAUSE_ECALL (8)
 
 extern char __bss[], __bss_end[], __stack_top[];
 extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
@@ -28,6 +31,37 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
 
 void putchar(const char ch) {
   sbi_call((long)ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
+}
+
+long getchar(void) {
+  struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
+  return ret.error;
+}
+
+void handle_syscall(struct trap_frame *f) {
+  switch (f->a3) {
+  case SYSCALL_PUTCHAR:
+    putchar(f->a0);
+    break;
+  case SYSCALL_GETCHAR:
+    while (true) {
+      long ch = getchar();
+      if (ch >= 0) {
+        f->a0 = ch;
+        break;
+      }
+      yield();
+    }
+    break;
+  case SYSCALL_EXIT:
+    exit_current_process();
+    // TODO: unmap and deallocate pages.
+    yield();
+    PANIC("unreachable");
+    break;
+  default:
+    PANIC("unexpected syscall %x\n", f->a3);
+  }
 }
 
 __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
@@ -110,34 +144,6 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
       "sret\n");
 }
 
-// Process testing
-
-void delay(void) {
-  for (int i = 0; i < 3000000; ++i) {
-    __asm__ __volatile__("nop");
-  }
-}
-
-struct Process *proc_a;
-struct Process *proc_b;
-
-void proc_a_entry() {
-  printf("starting proc a\n");
-  while (true) {
-    putchar('A');
-    yield();
-  }
-}
-
-void proc_b_entry() {
-  printf("starting proc b\n");
-  while (true) {
-    putchar('B');
-    yield();
-  }
-}
-// End Process testing
-
 void kmain(void) {
   // Clear BSS
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
@@ -173,8 +179,15 @@ void handle_trap(struct trap_frame *f) {
   uint32_t stval = READ_CSR(stval);
   uint32_t user_pc = READ_CSR(sepc);
 
-  PANIC("unexpected trap:\n  scause %x\n  stval %x\n  sepc %x\n", scause, stval,
-        user_pc);
+  if (scause == SCAUSE_ECALL) {
+    handle_syscall(f);
+    user_pc += 4;
+  } else {
+    PANIC("unexpected trap:\n  scause %x\n  stval %x\n  sepc %x\n", scause,
+          stval, user_pc);
+  }
+
+  WRITE_CSR(sepc, user_pc);
 }
 
 #define SSTATUS_SPIE (1 << 5)

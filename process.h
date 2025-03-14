@@ -4,7 +4,7 @@
 
 #define PROCS_MAX (8) // maximum number of processes
 
-enum ProcState { PROCSTATE_UNUSED, PROCSTATE_RUNNABLE };
+enum ProcState { PROCSTATE_UNUSED, PROCSTATE_RUNNABLE, PROCSTATE_EXITED };
 
 struct Process {
   int pid;
@@ -18,5 +18,6 @@ struct Process {
 void process_init();
 
 struct Process *create_process(const void *image, size_t image_size);
+void exit_current_process();
 
 void yield();

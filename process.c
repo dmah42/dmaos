@@ -74,6 +74,11 @@ struct Process *create_process(const void *image, size_t image_size) {
   return proc;
 }
 
+void exit_current_process() {
+  printf("process %d exiting\n", current_proc->pid);
+  current_proc->state = PROCSTATE_EXITED;
+}
+
 // TODO: consider benefits of storing the context in the Process.
 __attribute__((naked)) void switch_context(uint32_t *prev_sp,
                                            uint32_t *next_sp) {
@@ -118,7 +123,7 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
 
 void yield() {
   // Search for any runnable process
-  struct Process *next = current_proc;
+  struct Process *next = idle_proc;
   for (int i = 0; i < PROCS_MAX; ++i) {
     struct Process *proc = &procs[(next->pid + i) % PROCS_MAX];
     if (proc->state == PROCSTATE_RUNNABLE && proc->pid > 0) {
