@@ -1,6 +1,9 @@
+#include "stdlib.h"
 #include "user.h"
 
-#include "stdlib.h"
+#define GREEN "\033[32m"
+#define BOLD "\033[1m"
+#define DEFAULT "\033[0m"
 
 void run_command(const char *cmdline) {
   int pid = spawn(cmdline);
@@ -71,10 +74,10 @@ bool detect_utf8(void) {
   return (width == 1);
 }
 
-const char *utf8_welcome = "\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ\n";
+const char *utf8_welcome = "\n" BOLD GREEN "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ" DEFAULT "\n";
 const char *ascii_welcome = "\nWeLcOmE tO dMaSh\n";
 
-const char *utf8_prompt = "∅ ";
+const char *utf8_prompt = BOLD "∅ " DEFAULT;
 const char *ascii_prompt = "# ";
 
 int main(void) {
