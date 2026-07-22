@@ -28,13 +28,14 @@ struct tar_header {
 
 struct file {
   bool in_use;
-  char name[100];
-  char data[1024];
+  char name[MAX_FILENAME];
+  const char *data;
   size_t size;
 };
 
-#define FILES_MAX 3
-#define DISK_MAX_SIZE align_up(sizeof(struct file) * FILES_MAX, SECTOR_SIZE)
+#define FILES_MAX 10
+#define DISK_MAX_SECTORS 256
+#define DISK_MAX_SIZE (DISK_MAX_SECTORS * SECTOR_SIZE)
 
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
@@ -70,9 +71,9 @@ void fs_init() {
     int file_size = oct2int(header->size, sizeof(header->size));
     struct file *file = &files[i];
     file->in_use = true;
-    // TODO: strncpy
-    memcpy(file->name, header->name, 99);
-    memcpy(file->data, header->data, file_size);
+    memcpy(file->name, header->name, MAX_FILENAME - 1);
+    file->name[MAX_FILENAME - 1] = '\0';
+    file->data = header->data;
     file->size = file_size;
     printf("file: %s, size=%d\n", file->name, file->size);
 
@@ -130,4 +131,20 @@ int fs_get_file_size(int index) {
     return -1;
   }
   return files[index].size;
+}
+
+/*
+ * Returns a direct pointer to a file's read-only memory area and its size.
+ * This is a kernel-internal API to allow process.c to load binary images.
+ */
+void *fs_get_file_data(const char *name, size_t *size) {
+  for (int i = 0; i < FILES_MAX; i++) {
+    if (files[i].in_use && strcmp(files[i].name, name) == 0) {
+      if (size != NULL) {
+        *size = files[i].size;
+      }
+      return (void *)files[i].data;
+    }
+  }
+  return NULL;
 }

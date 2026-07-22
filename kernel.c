@@ -69,6 +69,12 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_GET_FILE_SIZE:
     f->a0 = fs_get_file_size(f->a0);
     break;
+  case SYSCALL_SPAWN:
+    f->a0 = spawn_process((const char *)f->a0);
+    break;
+  case SYSCALL_WAIT:
+    f->a0 = wait_process(f->a0);
+    break;
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }

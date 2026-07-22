@@ -19,5 +19,6 @@ void process_init();
 
 struct Process *create_process(const void *image, size_t image_size);
 void exit_current_process();
-
 void yield();
+int spawn_process(const char *filename);
+int wait_process(int pid);

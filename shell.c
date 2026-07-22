@@ -2,11 +2,12 @@
 
 #include "stdlib.h"
 
-void ls() {
-  char name[100];
-  for (int i = 0; get_file_name(i, name, sizeof(name)) >= 0; i++) {
-    int size = get_file_size(i);
-    printf("  %s (%d bytes)\n", name, size);
+void run_command(const char *cmdline) {
+  int pid = spawn(cmdline);
+  if (pid >= 0) {
+    wait(pid);
+  } else {
+    printf("unknown command: %s\n", cmdline);
   }
 }
 
@@ -57,16 +58,12 @@ int main(void) {
       }
     }
 
-    if (strcmp(cmdline, "hello") == 0) {
-      printf("hello world\n");
-    } else if (strcmp(cmdline, "exit") == 0) {
+    if (strcmp(cmdline, "exit") == 0) {
       exit();
-    } else if (strcmp(cmdline, "ls") == 0) {
-      ls();
     } else if (strncmp(cmdline, "cat", 3) == 0) {
       cat(cmdline);
     } else {
-      printf("unknown command: %s\n", cmdline);
+      run_command(cmdline);
     }
   }
   return 0;

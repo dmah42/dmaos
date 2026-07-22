@@ -1,0 +1,8 @@
+-I.
+-Wall
+-Wextra
+--target=riscv32-unknown-elf
+-fno-stack-protector
+-ffreestanding
+-nostdlib
+-fno-builtin

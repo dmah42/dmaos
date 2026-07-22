@@ -20,6 +20,7 @@ typedef uint32_t vaddr_t;
 #define false (0)
 #define NULL ((void *)0)
 #define FS_CHUNK_SIZE (512)
+#define MAX_FILENAME 128
 
 #define align_up(value, align) __builtin_align_up(value, align)
 #define is_aligned(value, align) __builtin_is_aligned(value, align)
@@ -34,5 +35,6 @@ void *memset(void *buf, char c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
 int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, size_t n);
+size_t strlen(const char *s);
 
 void printf(const char *fmt, ...);

@@ -1,5 +1,6 @@
 #include "process.h"
 
+#include "fs.h"
 #include "kernel.h"
 #include "memory.h"
 #include "virtio.h"
@@ -129,7 +130,7 @@ void yield() {
   // Search for any runnable process
   struct Process *next = idle_proc;
   for (int i = 0; i < PROCS_MAX; ++i) {
-    struct Process *proc = &procs[(next->pid + i) % PROCS_MAX];
+    struct Process *proc = &procs[(current_proc->pid + i) % PROCS_MAX];
     if (proc->state == PROCSTATE_RUNNABLE && proc->pid > 0) {
       next = proc;
       break;
@@ -156,4 +157,53 @@ void yield() {
   struct Process *prev = current_proc;
   current_proc = next;
   switch_context(&prev->sp, &next->sp);
+}
+
+/*
+ * Spawns a new process from a binary file in the tarball.
+ * Returns the PID of the new process, or -1 if the file does not exist.
+ */
+int spawn_process(const char *filename) {
+  size_t size;
+  const void *data = fs_get_file_data(filename, &size);
+  if (data == NULL) {
+    return -1;
+  }
+  struct Process *proc = create_process(data, size);
+  return proc->pid;
+}
+
+/*
+ * Waits for a process to finish execution.
+ * Yields CPU slices until the target process transitions to PROCSTATE_EXITED.
+ * Returns 0 on success, or -1 if the PID does not exist.
+ */
+int wait_process(int pid) {
+  bool found = false;
+  for (int i = 0; i < PROCS_MAX; i++) {
+    if (procs[i].state != PROCSTATE_UNUSED && procs[i].pid == pid) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    return -1;
+  }
+
+  while (true) {
+    struct Process *proc = NULL;
+    for (int i = 0; i < PROCS_MAX; i++) {
+      if (procs[i].state != PROCSTATE_UNUSED && procs[i].pid == pid) {
+        proc = &procs[i];
+        break;
+      }
+    }
+    if (proc == NULL || proc->state == PROCSTATE_EXITED) {
+      if (proc != NULL) {
+        proc->state = PROCSTATE_UNUSED;
+      }
+      return 0;
+    }
+    yield();
+  }
 }

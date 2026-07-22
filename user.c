@@ -40,6 +40,14 @@ int get_file_size(int index) {
   return syscall(SYSCALL_GET_FILE_SIZE, index, 0, 0);
 }
 
+int spawn(const char *name) {
+  return syscall(SYSCALL_SPAWN, (uint32_t)name, 0, 0);
+}
+
+int wait(int pid) {
+  return syscall(SYSCALL_WAIT, pid, 0, 0);
+}
+
 void umain() {
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
 
