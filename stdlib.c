@@ -56,6 +56,18 @@ void printf(const char *fmt, ...) {
   while (*fmt) {
     if (*fmt == '%') {
       ++fmt;
+      bool left_align = false;
+      if (*fmt == '-') {
+        left_align = true;
+        ++fmt;
+      }
+
+      int width = 0;
+      if (*fmt == '*') {
+        width = va_arg(vargs, int);
+        ++fmt;
+      }
+
       switch (*fmt) {
       case '\0':
         putchar('%');
@@ -65,18 +77,56 @@ void printf(const char *fmt, ...) {
         break;
       case 's': {
         const char *s = va_arg(vargs, const char *);
+        int len = strlen(s);
+        int pad = width - len;
+
+        if (!left_align) {
+          for (int i = 0; i < pad; i++) {
+            putchar(' ');
+          }
+        }
+
         while (*s) {
           putchar(*s);
           ++s;
+        }
+
+        if (left_align) {
+          for (int i = 0; i < pad; i++) {
+            putchar(' ');
+          }
         }
         break;
       }
       case 'd': {
         int value = va_arg(vargs, int);
         unsigned mag = value;
+        int len = 0;
+
+        if (value < 0) {
+          len++; // For '-'
+          mag = -mag;
+        }
+
+        unsigned temp = mag;
+        if (temp == 0) {
+          len++;
+        } else {
+          while (temp > 0) {
+            len++;
+            temp /= 10;
+          }
+        }
+
+        int pad = width - len;
+        if (!left_align) {
+          for (int i = 0; i < pad; i++) {
+            putchar(' ');
+          }
+        }
+
         if (value < 0) {
           putchar('-');
-          mag = -mag;
         }
 
         unsigned div = 1;
@@ -87,6 +137,12 @@ void printf(const char *fmt, ...) {
           putchar('0' + mag / div);
           mag %= div;
           div /= 10;
+        }
+
+        if (left_align) {
+          for (int i = 0; i < pad; i++) {
+            putchar(' ');
+          }
         }
         break;
       }
