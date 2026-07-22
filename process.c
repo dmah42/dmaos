@@ -12,12 +12,13 @@ struct Process *idle_proc = NULL;
 extern char __kernel_base[], __free_ram_end[];
 
 void process_init() {
-  idle_proc = create_process(NULL, 0);
+  idle_proc = create_process(NULL, 0, 0, NULL);
   idle_proc->pid = 0;
   current_proc = idle_proc;
 }
 
-struct Process *create_process(const void *image, size_t image_size) {
+struct Process *create_process(const void *image, size_t image_size, int argc,
+                               char **argv) {
   // Find an unused PCB
   struct Process *proc = NULL;
   int i;
@@ -35,19 +36,6 @@ struct Process *create_process(const void *image, size_t image_size) {
   // Stack callee-saved registers. These register values will be restored in
   // the first context switch in switch_context.
   uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
-  *--sp = 0;                    // s11
-  *--sp = 0;                    // s10
-  *--sp = 0;                    // s9
-  *--sp = 0;                    // s8
-  *--sp = 0;                    // s7
-  *--sp = 0;                    // s6
-  *--sp = 0;                    // s5
-  *--sp = 0;                    // s4
-  *--sp = 0;                    // s3
-  *--sp = 0;                    // s2
-  *--sp = 0;                    // s1
-  *--sp = 0;                    // s0
-  *--sp = (uint32_t)user_entry; // ra
 
   // Map kernel pages.
   uint32_t *page_table = (uint32_t *)alloc_pages(1);
@@ -60,6 +48,7 @@ struct Process *create_process(const void *image, size_t image_size) {
   map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
 
   // Map user pages.
+  paddr_t last_page = 0;
   for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
     paddr_t page = alloc_pages(1);
 
@@ -69,7 +58,62 @@ struct Process *create_process(const void *image, size_t image_size) {
     memcpy((void *)page, image + off, copy_size);
     map_page(page_table, USER_BASE + off, page,
              PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+    if (off + PAGE_SIZE >= image_size) {
+      last_page = page;
+    }
   }
+
+  // Copy arguments to the user stack
+  uint32_t user_sp = USER_BASE + image_size;
+  if (argc > 0 && last_page != 0) {
+    uint32_t stack_top_offset = image_size % PAGE_SIZE;
+    if (stack_top_offset == 0) {
+      stack_top_offset = PAGE_SIZE;
+    }
+
+    uint8_t *kernel_stack_top = (uint8_t *)(last_page + stack_top_offset);
+    uint8_t *kernel_sp = kernel_stack_top;
+
+    // Copy argument strings
+    uint32_t user_argv_va[16];
+    for (int j = argc - 1; j >= 0; --j) {
+      size_t len = strlen(argv[j]) + 1;
+      kernel_sp -= len;
+      memcpy(kernel_sp, argv[j], len);
+
+      uint32_t offset_from_top = kernel_stack_top - kernel_sp;
+      user_argv_va[j] = (USER_BASE + image_size) - offset_from_top;
+    }
+
+    // Align stack pointer to 16-byte boundary
+    kernel_sp = (uint8_t *)((uint32_t)kernel_sp & ~0xF);
+
+    // Write argv array of pointers
+    kernel_sp -= (argc + 1) * sizeof(uint32_t);
+    uint32_t *argv_array = (uint32_t *)kernel_sp;
+    for (int j = 0; j < argc; ++j) {
+      argv_array[j] = user_argv_va[j];
+    }
+    argv_array[argc] = 0; // NULL terminator
+
+    uint32_t offset_from_top = kernel_stack_top - kernel_sp;
+    user_sp = (USER_BASE + image_size) - offset_from_top;
+  }
+
+  // Initialize process register state
+  *--sp = 0;       // s11
+  *--sp = 0;       // s10
+  *--sp = 0;       // s9
+  *--sp = 0;       // s8
+  *--sp = 0;       // s7
+  *--sp = 0;       // s6
+  *--sp = 0;       // s5
+  *--sp = 0;       // s4
+  *--sp = 0;       // s3
+  *--sp = user_sp; // s2 (will be loaded into a1 / argv)
+  *--sp = argc;    // s1 (will be loaded into a0 / argc)
+  *--sp = user_sp; // s0 (will be loaded into sp / user stack pointer)
+  *--sp = (uint32_t)user_entry; // ra
 
   // Initialize Process
   proc->pid = i + 1;
@@ -163,13 +207,47 @@ void yield() {
  * Spawns a new process from a binary file in the tarball.
  * Returns the PID of the new process, or -1 if the file does not exist.
  */
-int spawn_process(const char *filename) {
-  size_t size;
-  const void *data = fs_get_file_data(filename, &size);
-  if (data == NULL) {
+int spawn_process(const char *cmdline) {
+  int argc = 0;
+  char *argv[16];
+  char cmd[128];
+
+  int len = strlen(cmdline);
+  if (len >= 128)
+    len = 127;
+  memcpy(cmd, cmdline, len);
+  cmd[len] = '\0';
+
+  char *p = cmd;
+  while (*p && argc < 16) {
+    while (*p == ' ') {
+      p++;
+    }
+    if (*p == '\0')
+      break;
+
+    argv[argc++] = p;
+
+    while (*p && *p != ' ') {
+      p++;
+    }
+    if (*p == ' ') {
+      *p = '\0';
+      p++;
+    }
+  }
+
+  if (argc == 0) {
     return -1;
   }
-  struct Process *proc = create_process(data, size);
+
+  size_t size;
+  const void *data = fs_get_file_data(argv[0], &size);
+  if (data == NULL) {
+    printf("file '%s' not found\n", argv[0]);
+    return -1;
+  }
+  struct Process *proc = create_process(data, size, argc, argv);
   return proc->pid;
 }
 

@@ -34,7 +34,7 @@ struct file {
 };
 
 #define FILES_MAX 10
-#define DISK_MAX_SECTORS 256
+#define DISK_MAX_SECTORS 1024
 #define DISK_MAX_SIZE (DISK_MAX_SECTORS * SECTOR_SIZE)
 
 struct file files[FILES_MAX];
@@ -53,7 +53,12 @@ int oct2int(char *oct, int len) {
 }
 
 void fs_init() {
-  for (uint32_t sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
+  uint32_t sectors = virtio_blk_sectors();
+  if (sectors > DISK_MAX_SECTORS) {
+    sectors = DISK_MAX_SECTORS;
+  }
+
+  for (uint32_t sector = 0; sector < sectors; sector++) {
     read_write_device(&disk[sector * SECTOR_SIZE], sector, false);
   }
 

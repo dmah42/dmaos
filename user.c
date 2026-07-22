@@ -48,15 +48,16 @@ int wait(int pid) {
   return syscall(SYSCALL_WAIT, pid, 0, 0);
 }
 
-void umain() {
+extern int main(int argc, char **argv);
+
+void umain(int argc, char **argv) {
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
 
-  __asm__ __volatile__("call main");
+  main(argc, argv);
+  exit();
 }
 
 __attribute__((section(".text.start"))) __attribute__((naked)) void
 start(void) {
-  __asm__ __volatile__("mv sp, %[stack_top] \n"
-                       "call umain          \n"
-                       "call exit           \n" ::[stack_top] "r"(__stack_top));
+  __asm__ __volatile__("call umain \n");
 }

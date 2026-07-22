@@ -79,10 +79,12 @@ struct virtio_blk_req {
   uint8_t status;
 } __attribute__((packed));
 
-uint32_t blk_capacity;
+static uint32_t blk_capacity;
 struct virtio_blk_req *blk_req;
 struct virtio_virtq *blk_request_vq;
 paddr_t blk_req_paddr;
+
+uint32_t virtio_blk_sectors(void) { return blk_capacity / SECTOR_SIZE; }
 
 uint32_t virtio_reg_read32(unsigned offset) {
   return *((volatile uint32_t *)(VIRTIO_BLK_PADDR + offset));

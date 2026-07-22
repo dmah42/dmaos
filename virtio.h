@@ -7,3 +7,4 @@
 
 void virtio_blk_init();
 void read_write_device(void *buf, uint32_t sector, bool is_write);
+uint32_t virtio_blk_sectors(void);

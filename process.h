@@ -17,7 +17,8 @@ struct Process {
 
 void process_init();
 
-struct Process *create_process(const void *image, size_t image_size);
+struct Process *create_process(const void *image, size_t image_size, int argc,
+                               char **argv);
 void exit_current_process();
 void yield();
 int spawn_process(const char *filename);

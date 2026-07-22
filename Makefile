@@ -14,11 +14,12 @@ qflags := -machine virt -bios default -nographic \
 
 ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c
 usources := shell.c stdlib.c user.c
-uprogs   := build/hello build/ls
+utxts    := disk/hello.txt disk/lorem.txt disk/meow.txt
+uprogs   := build/hello build/ls build/cat
 
 .PHONY: all clean run
 
-all: kernel.elf
+all: kernel.elf disk.tar
 
 kernel.elf: $(ksources) kernel.ld shell.bin.o $(uprogs)
 	$(cc) $(cflags) $(kflags) -o $@ $(ksources) shell.bin.o
@@ -39,8 +40,8 @@ shell.bin: shell.elf
 shell.bin.o: shell.bin
 	$(objcopy) -Ibinary -Oelf32-littleriscv shell.bin shell.bin.o
 
-disk.tar: disk/hello.txt disk/lorem.txt disk/meow.txt $(uprogs)
-	COPYFILE_DISABLE=1 tar -cf $@ --format=ustar -C disk hello.txt lorem.txt meow.txt -C ../build $(notdir $(uprogs))
+disk.tar: $(utxts) $(uprogs)
+	COPYFILE_DISABLE=1 tar -cf $@ --format=ustar -C disk $(notdir $(utxts)) -C ../build $(notdir $(uprogs))
 
 build/%.elf: usr/%.c stdlib.c user.c user.ld
 	@mkdir -p build
