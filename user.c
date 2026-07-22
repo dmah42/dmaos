@@ -26,7 +26,19 @@ __attribute__((noreturn)) void exit(void) {
 }
 
 void putchar(char ch) { syscall(SYSCALL_PUTCHAR, ch, 0, 0); }
-char getchar() { return syscall(SYSCALL_GETCHAR, 0, 0, 0); }
+int getchar_nonblock(void) { return syscall(SYSCALL_GETCHAR, 0, 0, 0); }
+
+void yield(void) { syscall(SYSCALL_YIELD, 0, 0, 0); }
+
+int getchar(void) {
+  while (1) {
+    int ch = getchar_nonblock();
+    if (ch >= 0) {
+      return ch;
+    }
+    yield();
+  }
+}
 
 int read_file(const char *name, char *buf, int offset) {
   return syscall(SYSCALL_READ_FILE, (uint32_t)name, (uint32_t)buf, offset);
@@ -44,9 +56,7 @@ int spawn(const char *name) {
   return syscall(SYSCALL_SPAWN, (uint32_t)name, 0, 0);
 }
 
-int wait(int pid) {
-  return syscall(SYSCALL_WAIT, pid, 0, 0);
-}
+int wait(int pid) { return syscall(SYSCALL_WAIT, pid, 0, 0); }
 
 extern int main(int argc, char **argv);
 

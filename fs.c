@@ -80,7 +80,6 @@ void fs_init() {
     file->name[MAX_FILENAME - 1] = '\0';
     file->data = header->data;
     file->size = file_size;
-    printf("file: %s, size=%d\n", file->name, file->size);
 
     off += align_up(sizeof(struct tar_header) + file_size, SECTOR_SIZE);
   }

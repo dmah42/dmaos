@@ -107,3 +107,30 @@ void printf(const char *fmt, ...) {
 end:
   va_end(vargs);
 }
+
+static uint32_t rand_state = 12345;
+
+void srand(uint32_t seed) { rand_state = seed; }
+
+uint32_t rand(void) {
+  rand_state = rand_state * 1103515245 + 12345;
+  return rand_state % 32768;
+}
+
+uint64_t uptime(void) {
+  uint32_t low, high, temp;
+  __asm__ __volatile__("1:\n"
+                       "rdtimeh %0\n"
+                       "rdtime %1\n"
+                       "rdtimeh %2\n"
+                       "bne %0, %2, 1b\n"
+                       : "=&r"(high), "=&r"(low), "=&r"(temp));
+  return ((uint64_t)high << 32) | low;
+}
+
+void sleep_ms(uint32_t ms) {
+  uint64_t start = uptime();
+  uint64_t ticks = (uint64_t)ms * 10000;
+  while (uptime() - start < ticks) {
+  }
+}

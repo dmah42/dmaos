@@ -45,14 +45,10 @@ void handle_syscall(struct trap_frame *f) {
     putchar(f->a0);
     break;
   case SYSCALL_GETCHAR:
-    while (true) {
-      long ch = getchar();
-      if (ch >= 0) {
-        f->a0 = ch;
-        break;
-      }
-      yield();
-    }
+    f->a0 = getchar();
+    break;
+  case SYSCALL_YIELD:
+    yield();
     break;
   case SYSCALL_EXIT:
     exit_current_process();
@@ -172,7 +168,8 @@ void kmain(void) {
 
   process_init();
 
-  create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0, NULL);
+  create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
+                 NULL);
 
   yield();
 
@@ -212,16 +209,15 @@ void handle_trap(struct trap_frame *f) {
 #define SSTATUS_SUM (1 << 18)
 
 __attribute__((naked)) void user_entry(void) {
-  __asm__ __volatile__(
-      "mv sp, s0\n"
-      "mv a0, s1\n"
-      "mv a1, s2\n"
-      "lui t0, 0x1000\n"        // USER_BASE (0x1000000)
-      "csrw sepc, t0\n"
-      "lui t1, 0x40\n"          // SSTATUS_SPIE | SSTATUS_SUM (0x40020)
-      "addi t1, t1, 0x20\n"
-      "csrw sstatus, t1\n"
-      "sret\n");
+  __asm__ __volatile__("mv sp, s0\n"
+                       "mv a0, s1\n"
+                       "mv a1, s2\n"
+                       "lui t0, 0x1000\n" // USER_BASE (0x1000000)
+                       "csrw sepc, t0\n"
+                       "lui t1, 0x40\n" // SSTATUS_SPIE | SSTATUS_SUM (0x40020)
+                       "addi t1, t1, 0x20\n"
+                       "csrw sstatus, t1\n"
+                       "sret\n");
 }
 
 void shutdown(void) {

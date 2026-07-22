@@ -123,10 +123,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   return proc;
 }
 
-void exit_current_process() {
-  printf("process %d exiting\n", current_proc->pid);
-  current_proc->state = PROCSTATE_EXITED;
-}
+void exit_current_process() { current_proc->state = PROCSTATE_EXITED; }
 
 // TODO: consider benefits of storing the context in the Process.
 __attribute__((naked)) void switch_context(uint32_t *prev_sp,

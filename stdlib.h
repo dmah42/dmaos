@@ -40,3 +40,8 @@ int strncmp(const char *s1, const char *s2, size_t n);
 size_t strlen(const char *s);
 
 void printf(const char *fmt, ...);
+
+void srand(uint32_t seed);
+uint32_t rand(void);
+uint64_t uptime(void);
+void sleep_ms(uint32_t ms);
