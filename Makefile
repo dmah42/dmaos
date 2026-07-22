@@ -26,7 +26,7 @@ run: kernel.elf disk.tar
 	$(qemu) $(qflags) -kernel kernel.elf
 
 clean:
-	rm -f kernel.map kernel.elf shell.map shell.elf shell.bin.o shell.bin
+	rm -f kernel.map kernel.elf shell.map shell.elf shell.bin.o shell.bin disk.tar
 
 # TODO: generalize these...
 shell.elf: $(usources) user.ld

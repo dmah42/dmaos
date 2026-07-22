@@ -79,3 +79,55 @@ void fs_init() {
     off += align_up(sizeof(struct tar_header) + file_size, SECTOR_SIZE);
   }
 }
+
+/*
+ * Reads up to FS_CHUNK_SIZE bytes of file contents from the specified offset
+ * into a user-provided buffer. Returns the number of bytes actually read on
+ * success (0 indicates EOF). Returns -1 if the file is not found.
+ */
+int fs_read_file(const char *name, char *buf, int offset) {
+  for (int i = 0; i < FILES_MAX; i++) {
+    if (files[i].in_use && strcmp(files[i].name, name) == 0) {
+      if ((size_t)offset >= files[i].size) {
+        return 0; // EOF
+      }
+      size_t read_len = files[i].size - offset;
+      if (read_len > FS_CHUNK_SIZE) {
+        read_len = FS_CHUNK_SIZE;
+      }
+      if (buf != NULL) {
+        memcpy(buf, files[i].data + offset, read_len);
+      }
+      return read_len;
+    }
+  }
+  return -1;
+}
+
+/*
+ * Copies the name of the file at the specified index into a user-provided
+ * buffer. Returns 0 on success. Returns -1 if the index is out of bounds or the
+ * file slot is unused.
+ */
+int fs_get_file_name(int index, char *buf, int buf_len) {
+  if (index < 0 || index >= FILES_MAX || !files[index].in_use) {
+    return -1;
+  }
+  int i;
+  for (i = 0; i < buf_len - 1 && files[index].name[i] != '\0'; i++) {
+    buf[i] = files[index].name[i];
+  }
+  buf[i] = '\0';
+  return 0;
+}
+
+/*
+ * Returns the size of the file at the specified index.
+ * Returns -1 if the index is out of bounds or the file slot is unused.
+ */
+int fs_get_file_size(int index) {
+  if (index < 0 || index >= FILES_MAX || !files[index].in_use) {
+    return -1;
+  }
+  return files[index].size;
+}

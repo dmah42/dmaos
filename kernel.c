@@ -60,6 +60,15 @@ void handle_syscall(struct trap_frame *f) {
     yield();
     PANIC("unreachable");
     break;
+  case SYSCALL_READ_FILE:
+    f->a0 = fs_read_file((const char *)f->a0, (char *)f->a1, f->a2);
+    break;
+  case SYSCALL_GET_FILE_NAME:
+    f->a0 = fs_get_file_name(f->a0, (char *)f->a1, f->a2);
+    break;
+  case SYSCALL_GET_FILE_SIZE:
+    f->a0 = fs_get_file_size(f->a0);
+    break;
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
@@ -194,11 +203,20 @@ void handle_trap(struct trap_frame *f) {
 }
 
 #define SSTATUS_SPIE (1 << 5)
+#define SSTATUS_SUM (1 << 18)
 
-__attribute__((naked)) void user_entry() {
-  __asm__ __volatile__("csrw sepc, %[sepc]\n"
-                       "csrw sstatus, %[sstatus]\n"
-                       "sret\n"
-                       :
-                       : [sepc] "r"(USER_BASE), [sstatus] "r"(SSTATUS_SPIE));
+__attribute__((naked)) void user_entry(void) {
+  __asm__ __volatile__(
+      "csrw sepc, %[sepc]\n"
+      "csrw sstatus, %[sstatus]\n"
+      "sret\n"
+      :
+      : [sepc] "r"(USER_BASE), [sstatus] "r"(SSTATUS_SPIE | SSTATUS_SUM));
+}
+
+void shutdown(void) {
+  sbi_call(0, 0, 0, 0, 0, 0, 0, 8); // sbi_shutdown
+  for (;;) {
+    __asm__ __volatile__("wfi");
+  }
 }

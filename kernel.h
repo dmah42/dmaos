@@ -58,13 +58,13 @@ struct trap_frame {
   do {                                                                         \
     printf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                         \
     printf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);             \
-    while (1) {                                                                \
-    }                                                                          \
+    shutdown();                                                                \
   } while (0)
 
 #define USER_BASE 0x1000000
 
-void user_entry();
+void user_entry(void);
+void shutdown(void);
 
 // syscall implementations
 void putchar(const char ch);
