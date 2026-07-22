@@ -79,12 +79,12 @@ struct virtio_blk_req {
   uint8_t status;
 } __attribute__((packed));
 
-static uint32_t blk_capacity;
+static uint32_t blk_sectors;
 struct virtio_blk_req *blk_req;
 struct virtio_virtq *blk_request_vq;
 paddr_t blk_req_paddr;
 
-uint32_t virtio_blk_sectors(void) { return blk_capacity / SECTOR_SIZE; }
+uint32_t virtio_blk_sectors(void) { return blk_sectors; }
 
 uint32_t virtio_reg_read32(unsigned offset) {
   return *((volatile uint32_t *)(VIRTIO_BLK_PADDR + offset));
@@ -137,9 +137,9 @@ bool virtq_is_busy(struct virtio_virtq *vq) {
 }
 
 void read_write_device(void *buf, uint32_t sector, bool is_write) {
-  if (sector >= blk_capacity / SECTOR_SIZE) {
+  if (sector >= blk_sectors) {
     printf("virtio: tried to read/write sector=%d, but capacity is %d\n",
-           sector, blk_capacity / SECTOR_SIZE);
+           sector, blk_sectors);
     return;
   }
 
@@ -207,7 +207,7 @@ void virtio_blk_init() {
   virtio_reg_write32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
 
   // Get the disk capacity.
-  blk_capacity = virtio_reg_read64(VIRTIO_REG_DEVICE_CONFIG + 0) * SECTOR_SIZE;
+  blk_sectors = virtio_reg_read64(VIRTIO_REG_DEVICE_CONFIG + 0);
 
   // Allocate a region to store requests to the device.
   blk_req_paddr =

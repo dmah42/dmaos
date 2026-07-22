@@ -1,6 +1,7 @@
 #include "stdlib.h"
 
 void putchar(char);
+void yield(void);
 
 void *memcpy(void *dst, const void *src, size_t n) {
   uint8_t *d = (uint8_t *)dst;
@@ -190,5 +191,6 @@ void sleep_ms(uint32_t ms) {
   uint64_t start = uptime();
   uint64_t ticks = (uint64_t)ms * 10000;
   while (uptime() - start < ticks) {
+    yield();
   }
 }

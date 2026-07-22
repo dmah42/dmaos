@@ -5,17 +5,41 @@
 
 extern char __free_ram[], __free_ram_end[];
 
+#define NUM_PAGES (64 * 1024 * 1024 / PAGE_SIZE)
+static uint8_t page_allocated[NUM_PAGES];
+
 paddr_t alloc_pages(uint32_t n) {
-  static paddr_t npaddr = (paddr_t)__free_ram;
-  paddr_t paddr = npaddr;
-  npaddr += n * PAGE_SIZE;
-
-  if (npaddr > (paddr_t)__free_ram_end) {
-    PANIC("+++ OUT OF CHEESE +++");
+  for (uint32_t i = 0; i <= NUM_PAGES - n; i++) {
+    bool found = true;
+    for (uint32_t j = 0; j < n; j++) {
+      if (page_allocated[i + j]) {
+        found = false;
+        break;
+      }
+    }
+    if (found) {
+      for (uint32_t j = 0; j < n; j++) {
+        page_allocated[i + j] = 1;
+      }
+      paddr_t paddr = (paddr_t)__free_ram + i * PAGE_SIZE;
+      memset((void *)paddr, 0, n * PAGE_SIZE);
+      return paddr;
+    }
   }
+  PANIC("+++ OUT OF CHEESE +++");
+}
 
-  memset((void *)paddr, 0xfe, n * PAGE_SIZE);
-  return paddr;
+void free_pages(paddr_t paddr, uint32_t n) {
+  if (paddr < (paddr_t)__free_ram || paddr >= (paddr_t)__free_ram_end) {
+    PANIC("free_pages: invalid paddr %x", paddr);
+  }
+  uint32_t start_page = (paddr - (paddr_t)__free_ram) / PAGE_SIZE;
+  if (start_page + n > NUM_PAGES) {
+    PANIC("free_pages: out of bounds %x", paddr);
+  }
+  for (uint32_t i = 0; i < n; i++) {
+    page_allocated[start_page + i] = 0;
+  }
 }
 
 void map_page(uint32_t *t1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {

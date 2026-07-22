@@ -20,7 +20,9 @@ typedef uint32_t vaddr_t;
 #define false (0)
 #define NULL ((void *)0)
 #define FS_CHUNK_SIZE (512)
-#define MAX_FILENAME 128
+// NOTE: this is limited by tar header restrictions and can be changed
+// once we are not using a tar disk as a filesystem
+#define MAX_FILENAME (100)
 
 #define align_up(value, align) __builtin_align_up(value, align)
 #define is_aligned(value, align) __builtin_is_aligned(value, align)

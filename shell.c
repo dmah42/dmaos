@@ -120,8 +120,11 @@ int main(void) {
     if (strcmp(cmdline, "exit") == 0) {
       exit();
     } else if (strcmp(cmdline, "kmesg") == 0) {
-      char buf[4096];
-      kmesg(buf, sizeof(buf));
+      char buf[4097];
+      int len = kmesg(buf, sizeof(buf) - 1);
+      if (len >= 0) {
+        buf[len] = '\0';
+      }
       printf("%s", buf);
     } else {
       run_command(cmdline);

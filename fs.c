@@ -5,7 +5,7 @@
 #include "virtio.h"
 
 struct tar_header {
-  char name[100];
+  char name[MAX_FILENAME];
   char mode[8];
   char uid[8];
   char gid[8];
@@ -64,6 +64,9 @@ void fs_init() {
 
   uint32_t off = 0;
   for (int i = 0; i < FILES_MAX; ++i) {
+    if (off + sizeof(struct tar_header) > DISK_MAX_SIZE) {
+      break;
+    }
     struct tar_header *header = (struct tar_header *)&disk[off];
     if (header->name[0] == '\0') {
       break;
@@ -115,6 +118,9 @@ int fs_read_file(const char *name, char *buf, int offset) {
  * file slot is unused.
  */
 int fs_get_file_name(int index, char *buf, int buf_len) {
+  if (buf_len <= 0) {
+    return -1;
+  }
   if (index < 0 || index >= FILES_MAX || !files[index].in_use) {
     return -1;
   }

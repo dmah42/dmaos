@@ -69,7 +69,7 @@ void kprintf(const char *fmt, ...);
 #define USER_BASE 0x1000000
 
 void user_entry(void);
-void shutdown(void);
+__attribute__((noreturn)) void shutdown(void);
 
 // syscall implementations
 void putchar(const char ch);

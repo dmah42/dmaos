@@ -1,6 +1,7 @@
 #include "kernel.h"
 
 #include "fs.h"
+#include "memory.h"
 #include "process.h"
 #include "stdlib.h"
 #include "syscall.h"
@@ -67,6 +68,105 @@ long getchar(void) {
   return ret.error;
 }
 
+/*
+ * Reads the active page table directory pointer from the satp Control Status
+ * Register. In RISC-V SV32 mode, the lower 22 bits of satp contain the physical
+ * page number (PPN) of the Level-1 page table directory. Since the kernel maps
+ * physical memory 1:1, the virtual address is equal to the physical address.
+ */
+static uint32_t *get_active_page_table(void) {
+  uint32_t satp = READ_CSR(satp);
+  return (uint32_t *)((satp & 0x3fffff) * PAGE_SIZE);
+}
+
+/*
+ * Validates that a user-provided buffer range [addr, addr + len) is:
+ * 1. Entirely within user space (below 0x80000000 to prevent kernel access).
+ * 2. Fully mapped in the active process's page table directory.
+ * 3. Configured with user-accessible (PAGE_U) and writable (PAGE_W) page flags.
+ */
+static bool validate_user_write_buffer(const void *addr, size_t len) {
+  uint32_t start = (uint32_t)addr;
+  uint32_t end = start + len;
+  if (end < start)
+    return false; // Overflow check
+
+  if (end > 0x80000000)
+    return false;
+
+  uint32_t *t1 = get_active_page_table();
+  uint32_t page_start = start & ~(PAGE_SIZE - 1);
+  uint32_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  // Check every page spanned by the buffer
+  for (uint32_t va = page_start; va < page_end; va += PAGE_SIZE) {
+    // SV32 Level 1: VPN1 occupies bits [31:22] of the virtual address
+    uint32_t vpn1 = (va >> 22) & 0x3ff;
+    if ((t1[vpn1] & PAGE_V) == 0)
+      return false; // L1 page table entry must be valid
+
+    // Get the address of the Level 2 page table page
+    uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
+
+    // SV32 Level 2: VPN0 occupies bits [21:12] of the virtual address
+    uint32_t vpn0 = (va >> 12) & 0x3ff;
+    uint32_t entry = t0[vpn0];
+
+    // Ensure the page entry is valid, user-accessible, and writable
+    if ((entry & PAGE_V) == 0)
+      return false;
+    if ((entry & PAGE_U) == 0)
+      return false;
+    if ((entry & PAGE_W) == 0)
+      return false;
+  }
+  return true;
+}
+
+/*
+ * Validates that a user-provided null-terminated string lies entirely within
+ * valid, mapped user space. It scans the string byte by byte, checking page
+ * table validity only when crossing page boundaries to optimize performance.
+ */
+static bool validate_user_string(const char *str) {
+  uint32_t *t1 = get_active_page_table();
+  uint32_t va = (uint32_t)str;
+  if (va >= 0x80000000)
+    return false;
+
+  // Validate the first page containing the string's start
+  uint32_t current_page = va & ~(PAGE_SIZE - 1);
+  uint32_t vpn1 = (current_page >> 22) & 0x3ff;
+  if ((t1[vpn1] & PAGE_V) == 0)
+    return false;
+  uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
+  uint32_t vpn0 = (current_page >> 12) & 0x3ff;
+  if ((t0[vpn0] & PAGE_V) == 0 || (t0[vpn0] & PAGE_U) == 0)
+    return false;
+
+  while (true) {
+    // When va aligns to a page boundary, check that the new page is mapped and
+    // valid
+    if ((va & (PAGE_SIZE - 1)) == 0) {
+      current_page = va;
+      vpn1 = (current_page >> 22) & 0x3ff;
+      if ((t1[vpn1] & PAGE_V) == 0)
+        return false;
+      t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
+      vpn0 = (current_page >> 12) & 0x3ff;
+      if ((t0[vpn0] & PAGE_V) == 0 || (t0[vpn0] & PAGE_U) == 0)
+        return false;
+    }
+    // Read string character safely
+    if (*(volatile char *)va == '\0') {
+      return true;
+    }
+    va++;
+    if (va >= 0x80000000)
+      return false;
+  }
+}
+
 void handle_syscall(struct trap_frame *f) {
   switch (f->a3) {
   case SYSCALL_PUTCHAR:
@@ -84,29 +184,73 @@ void handle_syscall(struct trap_frame *f) {
     yield();
     PANIC("unreachable");
     break;
-  case SYSCALL_READ_FILE:
-    f->a0 = fs_read_file((const char *)f->a0, (char *)f->a1, f->a2);
+  case SYSCALL_READ_FILE: {
+    const char *name = (const char *)f->a0;
+    char *buf = (char *)f->a1;
+    int offset = f->a2;
+    if (!validate_user_string(name) ||
+        !validate_user_write_buffer(buf, FS_CHUNK_SIZE)) {
+      kprintf("read_file: invalid user pointer(s)\n");
+      f->a0 = -1;
+    } else {
+      int ret = fs_read_file(name, buf, offset);
+      if (ret < 0) {
+        kprintf("read_file: file '%s' not found or read failed\n", name);
+      }
+      f->a0 = ret;
+    }
     break;
-  case SYSCALL_GET_FILE_NAME:
-    f->a0 = fs_get_file_name(f->a0, (char *)f->a1, f->a2);
+  }
+  case SYSCALL_GET_FILE_NAME: {
+    int index = f->a0;
+    char *buf = (char *)f->a1;
+    int buf_len = f->a2;
+    if (buf_len <= 0 || !validate_user_write_buffer(buf, buf_len)) {
+      kprintf("get_file_name: invalid buffer or buf_len %d\n", buf_len);
+      f->a0 = -1;
+    } else {
+      f->a0 = fs_get_file_name(index, buf, buf_len);
+    }
     break;
+  }
   case SYSCALL_GET_FILE_SIZE:
     f->a0 = fs_get_file_size(f->a0);
     break;
-  case SYSCALL_SPAWN:
-    f->a0 = spawn_process((const char *)f->a0);
+  case SYSCALL_SPAWN: {
+    const char *cmdline = (const char *)f->a0;
+    if (!validate_user_string(cmdline)) {
+      kprintf("spawn: invalid cmdline pointer\n");
+      f->a0 = -1;
+    } else {
+      int ret = spawn_process(cmdline);
+      if (ret < 0) {
+        kprintf("spawn: failed to spawn '%s'\n", cmdline);
+      }
+      f->a0 = ret;
+    }
     break;
-  case SYSCALL_WAIT:
-    f->a0 = wait_process(f->a0);
+  }
+  case SYSCALL_WAIT: {
+    int ret = wait_process(f->a0);
+    if (ret < 0) {
+      kprintf("wait: invalid pid %d\n", f->a0);
+    }
+    f->a0 = ret;
     break;
+  }
   case SYSCALL_KMESG: {
     char *user_buf = (char *)f->a0;
     int limit = f->a1;
-    if (limit > kmesg_len) {
-      limit = kmesg_len;
+    if (limit <= 0 || !validate_user_write_buffer(user_buf, limit)) {
+      kprintf("kmesg: invalid buffer or limit %d\n", limit);
+      f->a0 = -1;
+    } else {
+      if (limit > kmesg_len) {
+        limit = kmesg_len;
+      }
+      memcpy(user_buf, kmesg_buf, limit);
+      f->a0 = limit;
     }
-    memcpy(user_buf, kmesg_buf, limit);
-    f->a0 = limit;
     break;
   }
   default:

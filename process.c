@@ -9,7 +9,7 @@ struct Process procs[PROCS_MAX];
 struct Process *current_proc = NULL;
 struct Process *idle_proc = NULL;
 
-extern char __kernel_base[], __free_ram_end[];
+extern char __kernel_base[], __free_ram[], __free_ram_end[];
 
 void process_init() {
   idle_proc = create_process(NULL, 0, 0, NULL);
@@ -132,6 +132,36 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
 void exit_current_process() {
   kprintf(YELLOW "Process exited: PID=%d\n" DEFAULT, current_proc->pid);
   current_proc->state = PROCSTATE_EXITED;
+}
+
+void free_process_pages(struct Process *proc) {
+  if (!proc->page_table) return;
+
+  uint32_t *t1 = proc->page_table;
+  for (uint32_t vpn1 = 0; vpn1 < 1024; vpn1++) {
+    uint32_t entry1 = t1[vpn1];
+    if (entry1 & PAGE_V) {
+      paddr_t pt0_paddr = (entry1 >> 10) * PAGE_SIZE;
+      uint32_t *t0 = (uint32_t *)pt0_paddr;
+
+      if (vpn1 < 512) {
+        for (uint32_t vpn0 = 0; vpn0 < 1024; vpn0++) {
+          uint32_t entry0 = t0[vpn0];
+          if (entry0 & PAGE_V) {
+            paddr_t page_paddr = (entry0 >> 10) * PAGE_SIZE;
+            if (page_paddr >= (paddr_t)__free_ram && page_paddr < (paddr_t)__free_ram_end) {
+              free_pages(page_paddr, 1);
+            }
+          }
+        }
+      }
+
+      free_pages(pt0_paddr, 1);
+    }
+  }
+
+  free_pages((paddr_t)t1, 1);
+  proc->page_table = NULL;
 }
 
 // TODO: consider benefits of storing the context in the Process.
@@ -284,6 +314,7 @@ int wait_process(int pid) {
     }
     if (proc == NULL || proc->state == PROCSTATE_EXITED) {
       if (proc != NULL) {
+        free_process_pages(proc);
         proc->state = PROCSTATE_UNUSED;
       }
       return 0;

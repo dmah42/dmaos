@@ -120,10 +120,16 @@ void update_game() {
 
   // Check if we eat food
   if (new_head.x == food.x && new_head.y == food.y) {
-    // Grow snake
-    snake_len++;
     score += 10;
-    // Shift elements down
+    if (snake_len < 100) {
+      // Grow snake
+      snake_len++;
+      // Shift elements down
+    } else {
+      // Limit reached: eat food but don't grow.
+      struct Point tail = snake[snake_len - 1];
+      printf("\033[%d;%dH ", tail.y + 2, tail.x + 2);
+    }
     for (int i = snake_len - 1; i > 0; --i) {
       snake[i] = snake[i - 1];
     }
