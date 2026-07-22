@@ -120,10 +120,19 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   proc->state = PROCSTATE_RUNNABLE;
   proc->page_table = page_table;
   proc->sp = (uint32_t)sp;
+  if (argv != NULL && argc > 0) {
+    kprintf(YELLOW "Process created: PID=%d, name=%s, image_size=%d\n" DEFAULT,
+            proc->pid, argv[0], image_size);
+  } else {
+    kprintf(YELLOW "Process created: PID=%d, idle/init\n" DEFAULT, proc->pid);
+  }
   return proc;
 }
 
-void exit_current_process() { current_proc->state = PROCSTATE_EXITED; }
+void exit_current_process() {
+  kprintf(YELLOW "Process exited: PID=%d\n" DEFAULT, current_proc->pid);
+  current_proc->state = PROCSTATE_EXITED;
+}
 
 // TODO: consider benefits of storing the context in the Process.
 __attribute__((naked)) void switch_context(uint32_t *prev_sp,

@@ -11,4 +11,5 @@ enum Syscall {
   SYSCALL_SPAWN,
   SYSCALL_WAIT,
   SYSCALL_YIELD,
+  SYSCALL_KMESG,
 };

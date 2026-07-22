@@ -30,8 +30,36 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
   return (struct sbiret){.error = a0, .value = a1};
 }
 
+#define KMESG_SIZE 4096
+char kmesg_buf[KMESG_SIZE];
+int kmesg_len = 0;
+
+void dump_kmesg(int limit) {
+  int start = 0;
+  if (limit > 0 && kmesg_len > limit) {
+    start = kmesg_len - limit;
+  }
+  for (int i = start; i < kmesg_len; i++) {
+    sbi_call((long)kmesg_buf[i], 0, 0, 0, 0, 0, 0, 1 /* putchar */);
+  }
+}
+
 void putchar(const char ch) {
   sbi_call((long)ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
+}
+
+void klog_putchar(char ch) {
+  if (kmesg_len < KMESG_SIZE - 1) {
+    kmesg_buf[kmesg_len++] = ch;
+    kmesg_buf[kmesg_len] = '\0';
+  }
+}
+
+void kprintf(const char *fmt, ...) {
+  va_list vargs;
+  va_start(vargs, fmt);
+  vprintf(klog_putchar, fmt, vargs);
+  va_end(vargs);
 }
 
 long getchar(void) {
@@ -71,6 +99,16 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_WAIT:
     f->a0 = wait_process(f->a0);
     break;
+  case SYSCALL_KMESG: {
+    char *user_buf = (char *)f->a0;
+    int limit = f->a1;
+    if (limit > kmesg_len) {
+      limit = kmesg_len;
+    }
+    memcpy(user_buf, kmesg_buf, limit);
+    f->a0 = limit;
+    break;
+  }
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
@@ -166,17 +204,26 @@ void kmain(void) {
   // Clear the screen of any bios messages.
   printf("\033[2J\033[3J\033[H");
 
-  virtio_blk_init();
-  fs_init();
+  kprintf("dmaOS kernel boot started\n");
 
+  kprintf("Initializing VirtIO block device\t");
+  virtio_blk_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing tar file system\t");
+  fs_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing process scheduler\n");
   process_init();
 
+  kprintf("Spawning shell process\n");
   create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
                  NULL);
 
   yield();
 
-  printf("Shell exited. Powering off...\n");
+  kprintf("Powering off\n");
   sbi_call(0, 0, 0, 0, 0, 0, 0, 8); // sbi_shutdown
 
   for (;;) {

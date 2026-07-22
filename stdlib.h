@@ -28,6 +28,13 @@ typedef uint32_t vaddr_t;
 
 #define _unused __attribute__((unused))
 
+// ANSI colour codes
+#define GREEN "\033[32m"
+#define YELLOW "\033[33m"
+#define BOLD "\033[1m"
+#define DEFAULT "\033[0m"
+#define RALIGN "\033[999C\033[6D"
+
 #define va_list __builtin_va_list
 #define va_start __builtin_va_start
 #define va_end __builtin_va_end
@@ -40,6 +47,7 @@ int strncmp(const char *s1, const char *s2, size_t n);
 size_t strlen(const char *s);
 
 void printf(const char *fmt, ...);
+void vprintf(void (*putc)(char), const char *fmt, va_list vargs);
 
 void srand(uint32_t seed);
 uint32_t rand(void);

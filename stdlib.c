@@ -49,10 +49,7 @@ size_t strlen(const char *s) {
   return len;
 }
 
-void printf(const char *fmt, ...) {
-  va_list vargs;
-  va_start(vargs, fmt);
-
+void vprintf(void (*putc)(char), const char *fmt, va_list vargs) {
   while (*fmt) {
     if (*fmt == '%') {
       ++fmt;
@@ -70,10 +67,10 @@ void printf(const char *fmt, ...) {
 
       switch (*fmt) {
       case '\0':
-        putchar('%');
-        goto end;
+        putc('%');
+        return;
       case '%':
-        putchar('%');
+        putc('%');
         break;
       case 's': {
         const char *s = va_arg(vargs, const char *);
@@ -82,18 +79,18 @@ void printf(const char *fmt, ...) {
 
         if (!left_align) {
           for (int i = 0; i < pad; i++) {
-            putchar(' ');
+            putc(' ');
           }
         }
 
         while (*s) {
-          putchar(*s);
+          putc(*s);
           ++s;
         }
 
         if (left_align) {
           for (int i = 0; i < pad; i++) {
-            putchar(' ');
+            putc(' ');
           }
         }
         break;
@@ -121,12 +118,12 @@ void printf(const char *fmt, ...) {
         int pad = width - len;
         if (!left_align) {
           for (int i = 0; i < pad; i++) {
-            putchar(' ');
+            putc(' ');
           }
         }
 
         if (value < 0) {
-          putchar('-');
+          putc('-');
         }
 
         unsigned div = 1;
@@ -134,14 +131,14 @@ void printf(const char *fmt, ...) {
           div *= 10;
 
         while (div > 0) {
-          putchar('0' + mag / div);
+          putc('0' + mag / div);
           mag %= div;
           div /= 10;
         }
 
         if (left_align) {
           for (int i = 0; i < pad; i++) {
-            putchar(' ');
+            putc(' ');
           }
         }
         break;
@@ -150,17 +147,22 @@ void printf(const char *fmt, ...) {
         unsigned val = va_arg(vargs, unsigned);
         for (int i = 7; i >= 0; --i) {
           unsigned nibble = (val >> (i * 4)) & 0xf;
-          putchar("0123456789abcdef"[nibble]);
+          putc("0123456789abcdef"[nibble]);
         }
         break;
       }
       }
     } else {
-      putchar(*fmt);
+      putc(*fmt);
     }
     ++fmt;
   }
-end:
+}
+
+void printf(const char *fmt, ...) {
+  va_list vargs;
+  va_start(vargs, fmt);
+  vprintf(putchar, fmt, vargs);
   va_end(vargs);
 }
 

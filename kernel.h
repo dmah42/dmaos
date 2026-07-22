@@ -54,10 +54,15 @@ struct trap_frame {
     __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                    \
   } while (0)
 
+void dump_kmesg(int limit);
+void kprintf(const char *fmt, ...);
+
 #define PANIC(fmt, ...)                                                        \
   do {                                                                         \
     printf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                         \
     printf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);             \
+    printf("---\n");                                                           \
+    dump_kmesg(1024);                                                          \
     shutdown();                                                                \
   } while (0)
 

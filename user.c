@@ -58,6 +58,10 @@ int spawn(const char *name) {
 
 int wait(int pid) { return syscall(SYSCALL_WAIT, pid, 0, 0); }
 
+int kmesg(char *buf, int buf_len) {
+  return syscall(SYSCALL_KMESG, (uint32_t)buf, buf_len, 0);
+}
+
 extern int main(int argc, char **argv);
 
 void umain(int argc, char **argv) {

@@ -1,10 +1,6 @@
 #include "stdlib.h"
 #include "user.h"
 
-#define GREEN "\033[32m"
-#define BOLD "\033[1m"
-#define DEFAULT "\033[0m"
-
 void run_command(const char *cmdline) {
   int pid = spawn(cmdline);
   if (pid >= 0) {
@@ -123,6 +119,10 @@ int main(void) {
 
     if (strcmp(cmdline, "exit") == 0) {
       exit();
+    } else if (strcmp(cmdline, "kmesg") == 0) {
+      char buf[4096];
+      kmesg(buf, sizeof(buf));
+      printf("%s", buf);
     } else {
       run_command(cmdline);
     }
