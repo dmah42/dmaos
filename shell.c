@@ -2,8 +2,8 @@
 
 #include "stdlib.h"
 
-void main(void) {
-  printf("wElCoMe To DmAoS\n");
+int main(void) {
+  printf("\nwElCoMe To DmAsHeLl\n");
 
   while (1) {
   prompt:
@@ -32,4 +32,5 @@ void main(void) {
       printf("unknown command: %s\n", cmdline);
     }
   }
+  return 0;
 }

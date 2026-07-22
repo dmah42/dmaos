@@ -2,6 +2,7 @@
 
 #include "kernel.h"
 #include "memory.h"
+#include "virtio.h"
 
 struct Process procs[PROCS_MAX];
 struct Process *current_proc = NULL;
@@ -53,6 +54,9 @@ struct Process *create_process(const void *image, size_t image_size) {
        paddr += PAGE_SIZE) {
     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
   }
+
+  // Map MMIO
+  map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
 
   // Map user pages.
   for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {

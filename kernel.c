@@ -1,9 +1,10 @@
 #include "kernel.h"
 
-#include "memory.h"
+#include "fs.h"
 #include "process.h"
 #include "stdlib.h"
 #include "syscall.h"
+#include "virtio.h"
 
 #define SCAUSE_ECALL (8)
 
@@ -151,15 +152,17 @@ void kmain(void) {
   // Tell the CPU where the exception handler is
   WRITE_CSR(stvec, (uint32_t)kentry);
 
+  virtio_blk_init();
+  fs_init();
+
   process_init();
 
   create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size);
 
   yield();
-  PANIC("switched to idle process");
 
-  // Say hello
-  printf("1 + 2 = %d, %x\n", 1 + 2, 0x00c0ffee);
+  printf("Shell exited. Powering off...\n");
+  sbi_call(0, 0, 0, 0, 0, 0, 0, 8); // sbi_shutdown
 
   for (;;) {
     __asm__ __volatile__("wfi");
