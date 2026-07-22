@@ -96,8 +96,8 @@ bool detect_utf8(void) {
   return (width == 1);
 }
 
-const char *utf8_welcome = "";
-const char *ascii_welcome = "\nWeLcOmE tO dMaShElL\n";
+const char *utf8_welcome = "\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ\n";
+const char *ascii_welcome = "\nWeLcOmE tO dMaSh\n";
 
 const char *utf8_prompt = "∅ ";
 const char *ascii_prompt = "# ";
