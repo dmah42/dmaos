@@ -163,6 +163,9 @@ void kmain(void) {
   // Tell the CPU where the exception handler is
   WRITE_CSR(stvec, (uint32_t)kentry);
 
+  // Clear the screen of any bios messages.
+  printf("\033[2J\033[3J\033[H");
+
   virtio_blk_init();
   fs_init();
 
