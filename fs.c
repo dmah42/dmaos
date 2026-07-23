@@ -5,25 +5,35 @@
 #include "stdlib.h"
 #include "virtio.h"
 
-static struct superblock sb;
+static struct superblock sb[2];
 static struct inode inode_table[NINODE];
+
+struct mount {
+  uint32_t parent_dev;
+  uint32_t parent_inum;
+  uint32_t child_dev;
+};
+
+static struct mount mounts[4];
+static int num_mounts = 0;
 
 /*
  * Reads a 1024-byte block (2 sectors) from the block device.
  */
-static void read_block(uint32_t block, void *buf) {
-  read_write_device(buf, block * SECTORS_PER_BLOCK, false);
-  read_write_device((int8_t *)buf + SECTOR_SIZE, block * SECTORS_PER_BLOCK + 1,
-                    false);
+static void read_block(uint32_t dev, uint32_t block, void *buf) {
+  read_write_device(dev, buf, block * SECTORS_PER_BLOCK, false);
+  read_write_device(dev, (int8_t *)buf + SECTOR_SIZE,
+                    block * SECTORS_PER_BLOCK + 1, false);
 }
 
 /*
  * In-memory inode cache retrieval.
  */
-struct inode *iget(uint32_t inum) {
+struct inode *iget(uint32_t dev, uint32_t inum) {
   struct inode *empty = NULL;
-  for (int i = 0; i < NINODE; i++) {
-    if (inode_table[i].ref > 0 && inode_table[i].inum == inum) {
+  for (int i = 0; i < NINODE; ++i) {
+    if (inode_table[i].ref > 0 && inode_table[i].dev == dev &&
+        inode_table[i].inum == inum) {
       ++inode_table[i].ref;
       return &inode_table[i];
     }
@@ -33,10 +43,12 @@ struct inode *iget(uint32_t inum) {
   }
 
   if (empty == NULL) {
-    PANIC("iget: failed to allocate in-memory inode cache slot for inum %d",
-          inum);
+    PANIC("iget: failed to allocate in-memory inode cache slot for dev %d, "
+          "inum %d",
+          dev, inum);
   }
 
+  empty->dev = dev;
   empty->inum = inum;
   empty->ref = 1;
   empty->valid = 0;
@@ -69,11 +81,11 @@ static void ilock(struct inode *ip) {
 
   if (ip->valid == 0) {
     uint32_t inodes_per_block = BSIZE / sizeof(struct dinode);
-    uint32_t block = sb.inodestart + ip->inum / inodes_per_block;
+    uint32_t block = sb[ip->dev].inodestart + ip->inum / inodes_per_block;
     uint32_t offset = (ip->inum % inodes_per_block) * sizeof(struct dinode);
 
     uint8_t buf[BSIZE];
-    read_block(block, buf);
+    read_block(ip->dev, block, buf);
     struct dinode *dip = (struct dinode *)(buf + offset);
 
     ip->type = dip->type;
@@ -109,7 +121,7 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
       PANIC("bmap: inode %d single-indirect block is 0", ip->inum);
     }
     uint32_t indirect[BSIZE / sizeof(uint32_t)];
-    read_block(indirect_block, indirect);
+    read_block(ip->dev, indirect_block, indirect);
     uint32_t addr = indirect[bn];
     if (addr == 0) {
       PANIC("bmap: inode %d indirect block index %d is 0", ip->inum, bn);
@@ -150,7 +162,7 @@ int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
   for (tot = 0; tot < n; tot += m, offset += m, dst += m) {
     uint32_t bn = offset / BSIZE;
     uint32_t block = bmap(ip, bn);
-    read_block(block, buf);
+    read_block(ip->dev, block, buf);
 
     uint32_t block_offset = offset % BSIZE;
     m = BSIZE - block_offset;
@@ -188,7 +200,7 @@ static struct inode *dirlookup(struct inode *dp, const char *name,
       if (poff) {
         *poff = off;
       }
-      return iget(de.inum);
+      return iget(dp->dev, de.inum);
     }
   }
   return NULL;
@@ -226,13 +238,13 @@ static const char *skipto(const char *path, char *name) {
 static struct inode *namex(const char *path, bool parent, char *name) {
   struct inode *ip;
   if (*path == '/') {
-    ip = iget(1); // Root directory is inode 1
+    ip = iget(0, 1); // Root directory is inode 1 on Device 0
   } else {
     struct Process *curr = get_current_process();
     if (curr != NULL && curr->cwd != NULL) {
-      ip = iget(curr->cwd->inum);
+      ip = iget(curr->cwd->dev, curr->cwd->inum);
     } else {
-      ip = iget(1);
+      ip = iget(0, 1);
     }
   }
 
@@ -248,13 +260,46 @@ static struct inode *namex(const char *path, bool parent, char *name) {
     if (parent && *path == '\0') {
       return ip;
     }
-    struct inode *next = dirlookup(ip, name, NULL);
+
+    struct inode *next = NULL;
+
+    // Upward traversal: if looking up ".." and we are at the root of a mounted
+    // device
+    if (strcmp(name, "..") == 0 && ip->inum == 1 && ip->dev != 0) {
+      for (int i = 0; i < num_mounts; ++i) {
+        if (mounts[i].child_dev == ip->dev) {
+          struct inode *parent_mount =
+              iget(mounts[i].parent_dev, mounts[i].parent_inum);
+          ilock(parent_mount);
+          next = dirlookup(parent_mount, "..", NULL);
+          iput(parent_mount);
+          break;
+        }
+      }
+    }
+
+    if (next == NULL) {
+      next = dirlookup(ip, name, NULL);
+    }
+
     if (next == NULL) {
       kprintf("namex: component '%s' not found in directory inum %d\n", name,
               ip->inum);
       iput(ip);
       return NULL;
     }
+
+    // Downward traversal: if next matches a registered mountpoint
+    for (int i = 0; i < num_mounts; ++i) {
+      if (mounts[i].parent_dev == next->dev &&
+          mounts[i].parent_inum == next->inum) {
+        iput(next);
+        next =
+            iget(mounts[i].child_dev, 1); // Switch to root of the child device
+        break;
+      }
+    }
+
     iput(ip);
     ip = next;
   }
@@ -279,12 +324,34 @@ struct inode *namei(const char *path) {
 void fs_init() {
   memset(inode_table, 0, sizeof(inode_table));
   uint8_t buf[BSIZE];
-  read_block(1, buf);
-  memcpy(&sb, buf, sizeof(sb));
-  if (sb.magic != XV6_FS_MAGIC) {
-    PANIC("fs_init: magic number mismatch. Expected %x, got %x", XV6_FS_MAGIC,
-          sb.magic);
+
+  // Initialize Device 0
+  read_block(0, 1, buf);
+  memcpy(&sb[0], buf, sizeof(sb[0]));
+  if (sb[0].magic != XV6_FS_MAGIC) {
+    PANIC("fs_init: Device 0 magic mismatch");
   }
+
+  // Initialize Device 1
+  read_block(1, 1, buf);
+  memcpy(&sb[1], buf, sizeof(sb[1]));
+  if (sb[1].magic != XV6_FS_MAGIC) {
+    PANIC("fs_init: Device 1 magic mismatch");
+  }
+
+  // Find `/home` inode on Device 0
+  struct inode *ip_home = namei("/home");
+  if (ip_home == NULL) {
+    PANIC("fs_init: mountpoint /home not found on Device 0");
+  }
+
+  // Mount Device 1 at `/home`
+  mounts[0].parent_dev = ip_home->dev;
+  mounts[0].parent_inum = ip_home->inum;
+  mounts[0].child_dev = 1;
+  num_mounts = 1;
+
+  iput(ip_home);
 }
 
 /*
@@ -307,7 +374,7 @@ int fs_get_file_name(int index, char *buf, int buf_len) {
   if (buf_len <= 0) {
     return -1;
   }
-  struct inode *dp = iget(1);
+  struct inode *dp = iget(0, 1);
   if (dp == NULL) {
     return -1;
   }
@@ -348,7 +415,7 @@ int fs_get_file_name(int index, char *buf, int buf_len) {
  * Gets size of file at index from root directory (ls compatibility).
  */
 int fs_get_file_size(int index) {
-  struct inode *dp = iget(1);
+  struct inode *dp = iget(0, 1);
   if (dp == NULL) {
     return -1;
   }
@@ -369,7 +436,7 @@ int fs_get_file_size(int index) {
     }
 
     if (current_index == index) {
-      struct inode *ip = iget(de.inum);
+      struct inode *ip = iget(0, de.inum);
       ilock(ip);
       int size = ip->size;
       iput(ip);
@@ -443,13 +510,13 @@ void fs_normalize_path(const char *base, const char *rel, char *dst,
   int num_tokens = 0;
   char *p = buf;
   while (*p == '/') {
-    p++;
+    ++p;
   }
 
   while (*p) {
     char *next = p;
     while (*next && *next != '/') {
-      next++;
+      ++next;
     }
     char orig = *next;
     *next = '\0';
@@ -470,7 +537,7 @@ void fs_normalize_path(const char *base, const char *rel, char *dst,
       *next = orig;
       p = next + 1;
       while (*p == '/') {
-        p++;
+        ++p;
       }
     } else {
       break;
@@ -479,7 +546,7 @@ void fs_normalize_path(const char *base, const char *rel, char *dst,
 
   dst[0] = '/';
   dst[1] = '\0';
-  for (int i = 0; i < num_tokens; i++) {
+  for (int i = 0; i < num_tokens; ++i) {
     if (i > 0 || dst[1] != '\0') {
       strncat(dst, "/", dst_len - strlen(dst) - 1);
     }

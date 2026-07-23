@@ -36,11 +36,11 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   if (current_proc != NULL && current_proc->cwd != NULL) {
-    proc->cwd = iget(current_proc->cwd->inum);
+    proc->cwd = iget(current_proc->cwd->dev, current_proc->cwd->inum);
     strncpy(proc->cwd_path, current_proc->cwd_path, sizeof(proc->cwd_path) - 1);
     proc->cwd_path[sizeof(proc->cwd_path) - 1] = '\0';
   } else {
-    proc->cwd = iget(1);
+    proc->cwd = iget(0, 1);
     strncpy(proc->cwd_path, "/", sizeof(proc->cwd_path) - 1);
     proc->cwd_path[sizeof(proc->cwd_path) - 1] = '\0';
   }
@@ -57,7 +57,8 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   // Map MMIO
-  map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
+  map_page(page_table, VIRTIO_BLK0_PADDR, VIRTIO_BLK0_PADDR, PAGE_R | PAGE_W);
+  map_page(page_table, VIRTIO_BLK1_PADDR, VIRTIO_BLK1_PADDR, PAGE_R | PAGE_W);
 
   // Map user pages.
   struct inode *ip = NULL;

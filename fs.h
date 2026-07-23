@@ -52,6 +52,7 @@ struct stat {
 };
 
 struct inode {
+  uint32_t dev;  // Device ID
   uint32_t inum; // Inode number
   int ref;       // Reference count
   int valid;     // Flag: Inode contents loaded from disk?
@@ -76,7 +77,7 @@ void fs_normalize_path(const char *base, const char *rel, char *dst,
                        size_t dst_len);
 
 // Inode and read helper declarations
-struct inode *iget(uint32_t inum);
+struct inode *iget(uint32_t dev, uint32_t inum);
 struct inode *namei(const char *path);
 void iput(struct inode *ip);
 int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n);

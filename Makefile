@@ -2,7 +2,7 @@ cc := $(shell brew --prefix llvm)/bin/clang
 objcopy := $(shell brew --prefix llvm)/bin/llvm-objcopy
 cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
           --target=riscv32-unknown-elf -nostdlib \
-					-fno-stack-protector -ffreestanding -fno-builtin -fuse-ld=lld
+          -fno-stack-protector -ffreestanding -fno-builtin -fuse-ld=lld
 kflags := -Wl,-Tkernel.ld -Wl,-Map=kernel.map
 uflags := -Wl,-Tuser.ld
 qemu := $(shell brew --prefix)/bin/qemu-system-riscv32
@@ -10,7 +10,9 @@ qflags := -machine virt -bios default -nographic \
 					-serial mon:stdio --no-reboot \
 					-d unimp,guest_errors,cpu_reset -D qemu.log \
 					-drive id=drive0,file=disk.img,format=raw,if=none \
-					-device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0
+					-device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 \
+					-drive id=drive1,file=data.img,format=raw,if=none \
+					-device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1
 
 ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c
 kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h
@@ -21,14 +23,14 @@ uconfigs := dmash.cfg
 uprogs   := cat hello ls snake
 
 .PHONY: all clean run
-.PRECIOUS: build/bin/%.elf
+.PRECIOUS: build/root/bin/%.elf
 
-all: kernel.elf disk.img
+all: kernel.elf disk.img data.img
 
 kernel.elf: $(ksources) $(kheaders) kernel.ld sh/shell.bin.o
 	$(cc) $(cflags) $(kflags) -o $@ $(ksources) sh/shell.bin.o
 
-run: kernel.elf disk.img
+run: kernel.elf disk.img data.img
 	$(qemu) $(qflags) -kernel kernel.elf
 
 clean:
@@ -48,20 +50,25 @@ bin/mkfs: tools/mkfs.c
 	@mkdir -p bin
 	$(cc) -Wall -Wextra -O2 -o $@ $< -DHOST_BUILD
 
-disk.img: bin/mkfs $(addprefix build/, $(utxts)) $(addprefix build/cfg/, $(uconfigs)) $(addprefix build/bin/, $(uprogs))
-	bin/mkfs $@ $(addprefix build/, $(utxts)) $(addprefix build/cfg/, $(uconfigs)) $(addprefix build/bin/, $(uprogs))
+disk.img: bin/mkfs $(addprefix build/root/, $(utxts)) $(addprefix build/root/cfg/, $(uconfigs)) $(addprefix build/root/bin/, $(uprogs))
+	@mkdir -p build/root/home
+	bin/mkfs $@ build/root
 
-build/cfg/%: disk/%
-	@mkdir -p build/cfg
+data.img: bin/mkfs
+	bin/mkfs $@
+
+build/root/cfg/%: disk/%
+	@mkdir -p build/root/cfg
 	@cp $< $@
 
-build/%: disk/%
-	@mkdir -p build/
+build/root/%: disk/%
+	@mkdir -p build/root/
 	@cp $< $@
 
-build/bin/%.elf: usr/%.c stdlib.c user.c $(uheaders) user.ld
-	@mkdir -p build/bin
-	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=build/bin/$*.map -o $@ $(filter %.c, $^)
-
-build/bin/%: build/bin/%.elf
+build/root/bin/%: build/elf/%.elf
+	@mkdir -p build/root/bin
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
+
+build/elf/%.elf: usr/%.c stdlib.c user.c $(uheaders) user.ld
+	@mkdir -p build/elf
+	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=build/elf/$*.map -o $@ $(filter %.c, $^)

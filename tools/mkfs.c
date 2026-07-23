@@ -3,7 +3,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Temporarily alias guest structs during inclusion to avoid clashing with host
+// standard headers
+#define dirent fsdirent
+#define stat fsstat
 #include "../fs.h"
+#undef dirent
+#undef stat
+
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #define SECTOR_SIZE 512
 #define DISK_SIZE_BLOCKS 512 // 512 KB total size
@@ -28,23 +39,14 @@ uint32_t balloc() {
   return b;
 }
 
-const char *get_basename(const char *path) {
-  const char *base = strrchr(path, '/');
-  return base ? base + 1 : path;
-}
-
 void write_block(uint32_t block, const void *buf) {
   memcpy(&disk[block * BSIZE], buf, BSIZE);
-}
-
-void read_block(uint32_t block, void *buf) {
-  memcpy(buf, &disk[block * BSIZE], BSIZE);
 }
 
 struct mkfs_dir {
   uint32_t inum;
   char path[256]; // Relative directory path, e.g. "" for root, "cfg" for /cfg
-  struct dirent entries[MAX_DIR_ENTRIES];
+  struct fsdirent entries[MAX_DIR_ENTRIES];
   int entry_count;
 };
 
@@ -52,7 +54,7 @@ struct mkfs_dir dirs[MAX_DIR_ENTRIES];
 int num_dirs = 0;
 
 uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
-                           uint32_t *freeinode) {
+                           uint32_t *freeinode_ptr) {
   if (strlen(dir_path) == 0) {
     return 1; // Root directory is always inum 1
   }
@@ -64,15 +66,31 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
     }
   }
 
-  if (strlen(dir_path) >= DIRSIZ) {
+  // Split into parent path and this directory's name
+  char parent_path[256] = "";
+  char dir_name[256] = "";
+  const char *last_slash = strrchr(dir_path, '/');
+  if (last_slash != NULL) {
+    size_t parent_len = last_slash - dir_path;
+    strncpy(parent_path, dir_path, parent_len);
+    parent_path[parent_len] = '\0';
+    strcpy(dir_name, last_slash + 1);
+  } else {
+    strcpy(dir_name, dir_path);
+  }
+
+  if (strlen(dir_name) >= DIRSIZ) {
     fprintf(stderr, "error: directory name '%s' too long (max %d chars)\n",
-            dir_path, DIRSIZ - 1);
+            dir_name, DIRSIZ - 1);
     exit(1);
   }
 
-  // Does not exist, create it!
-  uint32_t parent_inum = 1;
-  uint32_t inum = (*freeinode)++;
+  // Get or create parent directory
+  uint32_t parent_inum =
+      get_or_create_dir(parent_path, file_inodes, freeinode_ptr);
+
+  // Allocate inode
+  uint32_t inum = (*freeinode_ptr)++;
   if (inum >= MAX_DIR_ENTRIES) {
     fprintf(stderr, "error: out of inodes\n");
     exit(1);
@@ -90,38 +108,206 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
   strcpy(d->path, dir_path);
 
   // Add "." and ".." to this new directory
-  struct dirent dot;
+  struct fsdirent dot;
   dot.inum = inum;
   strcpy(dot.name, ".");
   d->entries[0] = dot;
 
-  struct dirent dotdot;
+  struct fsdirent dotdot;
   dotdot.inum = parent_inum;
   strcpy(dotdot.name, "..");
   d->entries[1] = dotdot;
 
   d->entry_count = 2;
 
-  // Add this directory entry to the parent directory (dirs[0])
-  struct mkfs_dir *parent = &dirs[0];
-  if (parent->entry_count >= MAX_DIR_ENTRIES) {
-    fprintf(stderr, "error: parent directory full\n");
+  // Find parent directory in dirs array and add this entry to it
+  int parent_idx = -1;
+  for (int i = 0; i < num_dirs; ++i) {
+    if (dirs[i].inum == parent_inum) {
+      parent_idx = i;
+      break;
+    }
+  }
+  if (parent_idx == -1) {
+    fprintf(stderr, "error: parent directory not found in dirs array\n");
     exit(1);
   }
-  struct dirent de;
+  struct mkfs_dir *p_dir = &dirs[parent_idx];
+  if (p_dir->entry_count >= MAX_DIR_ENTRIES) {
+    fprintf(stderr, "error: directory full\n");
+    exit(1);
+  }
+  struct fsdirent de;
   de.inum = inum;
-  strcpy(de.name, dir_path);
-  parent->entries[parent->entry_count++] = de;
+  strcpy(de.name, dir_name);
+  p_dir->entries[p_dir->entry_count++] = de;
 
   printf("Created directory '/%s' (inum=%d)\n", dir_path, inum);
   return inum;
 }
 
-int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    fprintf(stderr, "Usage: mkfs <disk.img> [files...]\n");
+void add_file(const char *host_path, const char *fs_path,
+              struct dinode *file_inodes, uint32_t *freeinode_ptr) {
+  // Split fs_path into directory and file parts
+  char dir_part[256] = "";
+  char file_part[256] = "";
+  const char *last_slash = strrchr(fs_path, '/');
+  if (last_slash != NULL) {
+    size_t dir_len = last_slash - fs_path;
+    if (dir_len >= sizeof(dir_part)) {
+      fprintf(stderr, "error: directory path too long\n");
+      exit(1);
+    }
+    strncpy(dir_part, fs_path, dir_len);
+    dir_part[dir_len] = '\0';
+    strcpy(file_part, last_slash + 1);
+  } else {
+    strcpy(file_part, fs_path);
+  }
+
+  if (strlen(file_part) >= DIRSIZ) {
+    fprintf(stderr, "error: filename '%s' too long (max %d chars)\n", file_part,
+            DIRSIZ - 1);
     exit(1);
   }
+
+  FILE *f = fopen(host_path, "rb");
+  if (!f) {
+    fprintf(stderr, "error: cannot open file %s\n", host_path);
+    exit(1);
+  }
+
+  // Allocate inode
+  uint32_t inum = (*freeinode_ptr)++;
+  if (inum >= MAX_DIR_ENTRIES) {
+    fprintf(stderr, "error: out of inodes\n");
+    fclose(f);
+    exit(1);
+  }
+
+  struct dinode *ip = &file_inodes[inum];
+  ip->type = FS_FILE;
+  ip->nlink = 1;
+  ip->size = 0;
+
+  // Read file contents into blocks
+  uint8_t file_buf[BSIZE];
+  size_t n;
+  uint32_t block_index = 0;
+  uint32_t indirect_block = 0;
+  uint32_t indirect_addrs[NINDIRECT];
+  memset(indirect_addrs, 0, sizeof(indirect_addrs));
+
+  while ((n = fread(file_buf, 1, BSIZE, f)) > 0) {
+    uint32_t db = balloc();
+    // Write data to disk image block
+    write_block(db, file_buf);
+    ip->size += n;
+
+    if (block_index < NDIRECT) {
+      ip->addrs[block_index] = db;
+    } else {
+      uint32_t indirect_idx = block_index - NDIRECT;
+      if (indirect_idx >= NINDIRECT) {
+        fprintf(stderr, "error: file '%s' too large (max %zu bytes)\n",
+                file_part, MAXFILE * BSIZE);
+        fclose(f);
+        exit(1);
+      }
+      if (indirect_block == 0) {
+        indirect_block = balloc();
+        ip->addrs[NDIRECT] = indirect_block;
+      }
+      indirect_addrs[indirect_idx] = db;
+    }
+    ++block_index;
+    // Reset buffer for clean write (if EOF)
+    memset(file_buf, 0, sizeof(file_buf));
+  }
+  fclose(f);
+
+  // If we used the indirect block, write it back
+  if (indirect_block != 0) {
+    write_block(indirect_block, indirect_addrs);
+  }
+
+  // Get or create directory inode
+  uint32_t dir_inum = get_or_create_dir(dir_part, file_inodes, freeinode_ptr);
+
+  // Find directory in dirs array
+  int target_dir_idx = -1;
+  for (int d = 0; d < num_dirs; ++d) {
+    if (dirs[d].inum == dir_inum) {
+      target_dir_idx = d;
+      break;
+    }
+  }
+  if (target_dir_idx == -1) {
+    fprintf(stderr, "error: target directory not found\n");
+    exit(1);
+  }
+  struct mkfs_dir *td = &dirs[target_dir_idx];
+  if (td->entry_count >= MAX_DIR_ENTRIES) {
+    fprintf(stderr, "error: directory full\n");
+    exit(1);
+  }
+  struct fsdirent de;
+  de.inum = inum;
+  strcpy(de.name, file_part);
+  td->entries[td->entry_count++] = de;
+
+  printf("Added file '%s' to '/%s' (inum=%d, size=%d bytes, blocks=%d)\n",
+         file_part, td->path, inum, ip->size, block_index);
+}
+
+void traverse_dir(const char *host_path, const char *fs_path,
+                  struct dinode *file_inodes, uint32_t *freeinode_ptr) {
+  DIR *dir = opendir(host_path);
+  if (!dir) {
+    fprintf(stderr, "error: could not open host directory %s\n", host_path);
+    exit(1);
+  }
+
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+
+    char next_host[512];
+    snprintf(next_host, sizeof(next_host), "%s/%s", host_path, entry->d_name);
+
+    char next_fs[256];
+    if (strlen(fs_path) == 0) {
+      snprintf(next_fs, sizeof(next_fs), "%s", entry->d_name);
+    } else {
+      snprintf(next_fs, sizeof(next_fs), "%s/%s", fs_path, entry->d_name);
+    }
+
+    struct stat st;
+    if (stat(next_host, &st) < 0) {
+      fprintf(stderr, "error: stat failed for %s\n", next_host);
+      exit(1);
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+      get_or_create_dir(next_fs, file_inodes, freeinode_ptr);
+      traverse_dir(next_host, next_fs, file_inodes, freeinode_ptr);
+    } else if (S_ISREG(st.st_mode)) {
+      add_file(next_host, next_fs, file_inodes, freeinode_ptr);
+    }
+  }
+  closedir(dir);
+}
+
+int main(int argc, char *argv[]) {
+  if (argc < 2 || argc > 3) {
+    fprintf(stderr, "Usage: mkfs <disk.img> [staging_dir]\n");
+    exit(1);
+  }
+
+  const char *disk_img = argv[1];
+  const char *staging_dir = (argc == 3) ? argv[2] : NULL;
 
   memset(disk, 0, sizeof(disk));
   memset(free_bitmap, 0, sizeof(free_bitmap));
@@ -157,12 +343,12 @@ int main(int argc, char *argv[]) {
   dirs[0].inum = 1;
   strcpy(dirs[0].path, "");
 
-  struct dirent dot;
+  struct fsdirent dot;
   dot.inum = 1;
   strcpy(dot.name, ".");
   dirs[0].entries[0] = dot;
 
-  struct dirent dotdot;
+  struct fsdirent dotdot;
   dotdot.inum = 1;
   strcpy(dotdot.name, "..");
   dirs[0].entries[1] = dotdot;
@@ -170,132 +356,14 @@ int main(int argc, char *argv[]) {
   dirs[0].entry_count = 2;
   num_dirs = 1;
 
-  // Read and add input files
-  for (int i = 2; i < argc; ++i) {
-    const char *filepath = argv[i];
-
-    // Strip "build/" prefix if present
-    const char *rel_path = filepath;
-    if (strncmp(filepath, "build/", 6) == 0) {
-      rel_path = filepath + 6;
-    }
-
-    // Split rel_path into directory and file parts
-    char dir_part[256] = "";
-    char file_part[256] = "";
-    const char *last_slash = strrchr(rel_path, '/');
-    if (last_slash != NULL) {
-      size_t dir_len = last_slash - rel_path;
-      if (dir_len >= sizeof(dir_part)) {
-        fprintf(stderr, "error: directory path too long\n");
-        exit(1);
-      }
-      strncpy(dir_part, rel_path, dir_len);
-      dir_part[dir_len] = '\0';
-      strcpy(file_part, last_slash + 1);
-    } else {
-      strcpy(file_part, rel_path);
-    }
-
-    if (strlen(file_part) >= DIRSIZ) {
-      fprintf(stderr, "error: filename '%s' too long (max %d chars)\n",
-              file_part, DIRSIZ - 1);
-      exit(1);
-    }
-
-    FILE *f = fopen(filepath, "rb");
-    if (!f) {
-      fprintf(stderr, "error: cannot open file %s\n", filepath);
-      exit(1);
-    }
-
-    // Allocate inode
-    uint32_t inum = freeinode++;
-    if (inum >= MAX_DIR_ENTRIES) {
-      fprintf(stderr, "error: out of inodes\n");
-      fclose(f);
-      exit(1);
-    }
-
-    struct dinode *ip = &file_inodes[inum];
-    ip->type = FS_FILE;
-    ip->nlink = 1;
-    ip->size = 0;
-
-    // Read file contents into blocks
-    uint8_t file_buf[BSIZE];
-    size_t n;
-    uint32_t block_index = 0;
-    uint32_t indirect_block = 0;
-    uint32_t indirect_addrs[NINDIRECT];
-    memset(indirect_addrs, 0, sizeof(indirect_addrs));
-
-    while ((n = fread(file_buf, 1, BSIZE, f)) > 0) {
-      uint32_t db = balloc();
-      // Write data to disk image block
-      write_block(db, file_buf);
-      ip->size += n;
-
-      if (block_index < NDIRECT) {
-        ip->addrs[block_index] = db;
-      } else {
-        uint32_t indirect_idx = block_index - NDIRECT;
-        if (indirect_idx >= NINDIRECT) {
-          fprintf(stderr, "error: file '%s' too large (max %zu bytes)\n",
-                  file_part, MAXFILE * BSIZE);
-          fclose(f);
-          exit(1);
-        }
-        if (indirect_block == 0) {
-          indirect_block = balloc();
-          ip->addrs[NDIRECT] = indirect_block;
-        }
-        indirect_addrs[indirect_idx] = db;
-      }
-      ++block_index;
-      // Reset buffer for clean write (if EOF)
-      memset(file_buf, 0, sizeof(file_buf));
-    }
-    fclose(f);
-
-    // If we used the indirect block, write it back
-    if (indirect_block != 0) {
-      write_block(indirect_block, indirect_addrs);
-    }
-
-    // Get or create directory inode
-    uint32_t dir_inum = get_or_create_dir(dir_part, file_inodes, &freeinode);
-
-    // Find directory in dirs array
-    int target_dir_idx = -1;
-    for (int d = 0; d < num_dirs; ++d) {
-      if (dirs[d].inum == dir_inum) {
-        target_dir_idx = d;
-        break;
-      }
-    }
-    if (target_dir_idx == -1) {
-      fprintf(stderr, "error: target directory not found\n");
-      exit(1);
-    }
-    struct mkfs_dir *td = &dirs[target_dir_idx];
-    if (td->entry_count >= MAX_DIR_ENTRIES) {
-      fprintf(stderr, "error: directory full\n");
-      exit(1);
-    }
-    struct dirent de;
-    de.inum = inum;
-    strcpy(de.name, file_part);
-    td->entries[td->entry_count++] = de;
-
-    printf("Added file '%s' to '/%s' (inum=%d, size=%d bytes, blocks=%d)\n",
-           file_part, td->path, inum, ip->size, block_index);
+  if (staging_dir != NULL) {
+    traverse_dir(staging_dir, "", file_inodes, &freeinode);
   }
 
   // Write all directories' content to blocks
   for (int d = 0; d < num_dirs; ++d) {
     struct mkfs_dir *dir = &dirs[d];
-    uint32_t dir_size_bytes = dir->entry_count * sizeof(struct dirent);
+    uint32_t dir_size_bytes = dir->entry_count * sizeof(struct fsdirent);
 
     // Update its dinode size
     struct dinode *ip = &file_inodes[dir->inum];
@@ -340,9 +408,9 @@ int main(int argc, char *argv[]) {
   write_block(6, free_bitmap);
 
   // Write the disk memory block array to file
-  FILE *out = fopen(argv[1], "wb");
+  FILE *out = fopen(disk_img, "wb");
   if (!out) {
-    fprintf(stderr, "error: cannot open output file %s\n", argv[1]);
+    fprintf(stderr, "error: cannot open output file %s\n", disk_img);
     exit(1);
   }
   fwrite(disk, 1, sizeof(disk), out);
@@ -354,6 +422,6 @@ int main(int argc, char *argv[]) {
   }
   printf("Created filesystem image '%s' (%d KB total size, total dir entries: "
          "%d)\n",
-         argv[1], DISK_SIZE_BLOCKS * BSIZE / 1024, total_entries);
+         disk_img, DISK_SIZE_BLOCKS * BSIZE / 1024, total_entries);
   return 0;
 }
