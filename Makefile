@@ -15,9 +15,9 @@ qflags := -machine virt -bios default -nographic \
 					-device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1
 
 ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c
-kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h
+kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h errno.h
 ssources := sh/shell.c stdlib.c user.c
-uheaders := user.h fs.h stdlib.h
+uheaders := user.h fs.h stdlib.h errno.h
 utxts    := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
 uprogs   := cat hello ls snake mkdir write rm

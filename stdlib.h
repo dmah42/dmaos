@@ -64,3 +64,5 @@ void srand(uint32_t seed);
 uint32_t rand(void);
 uint64_t uptime(void);
 void sleep_ms(uint32_t ms);
+
+const char *strerror(int err);

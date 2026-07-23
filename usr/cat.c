@@ -1,3 +1,4 @@
+#include "errno.h"
 #include "stdlib.h"
 #include "user.h"
 
@@ -25,12 +26,13 @@ int main(int argc, char **argv) {
   }
 
   struct stat st;
-  if (stat(filename, &st) < 0) {
-    printf("cat: '%s': no such file or directory\n", filename);
+  int ret = stat(filename, &st);
+  if (ret < 0) {
+    printf("cat: '%s': %s\n", filename, strerror(ret));
     return 1;
   }
   if (st.type == FS_DIR) {
-    printf("cat: '%s' is a directory\n", filename);
+    printf("cat: '%s': %s\n", filename, strerror(ERR_IS_A_DIRECTORY));
     return 1;
   }
 
@@ -41,6 +43,10 @@ int main(int argc, char **argv) {
     buf[read_bytes] = '\0';
     printf("%s", buf);
     offset += read_bytes;
+  }
+  if (read_bytes < 0) {
+    printf("\ncat: error reading '%s': %s\n", filename, strerror(read_bytes));
+    return 1;
   }
   return 0;
 }

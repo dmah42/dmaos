@@ -1,7 +1,8 @@
 #include "fs.h"
-#include "process.h"
 
+#include "errno.h"
 #include "kernel.h"
+#include "process.h"
 #include "stdlib.h"
 #include "virtio.h"
 
@@ -359,7 +360,7 @@ void fs_init() {
 int fs_read_file(const char *name, char *buf, int offset) {
   struct inode *ip = namei(name);
   if (ip == NULL) {
-    return -1;
+    return ERR_NOT_FOUND;
   }
   int n = readi(ip, buf, offset, FS_CHUNK_SIZE);
   iput(ip);
@@ -467,7 +468,7 @@ uint32_t fs_get_inode_size(struct inode *ip) {
 int fs_stat(const char *path, struct stat *st) {
   struct inode *ip = namei(path);
   if (ip == NULL) {
-    return -1;
+    return ERR_NOT_FOUND;
   }
   ilock(ip);
   st->type = ip->type;
@@ -479,12 +480,12 @@ int fs_stat(const char *path, struct stat *st) {
 int fs_chdir(const char *path, struct inode **pip) {
   struct inode *ip = namei(path);
   if (ip == NULL) {
-    return -1;
+    return ERR_NOT_FOUND;
   }
   ilock(ip);
   if (ip->type != FS_DIR) {
     iput(ip);
-    return -1;
+    return ERR_NOT_A_DIRECTORY;
   }
   *pip = ip;
   return 0;
@@ -794,31 +795,31 @@ int fs_write_file(const char *name, const char *buf, int len, int offset) {
   struct inode *dp = namex(name, true, file_part);
   if (dp == NULL) {
     kprintf("fs_write_file: attempt to write to null inode\n");
-    return -1;
+    return ERR_NOT_FOUND;
   }
 
   if (dp->dev == 0) {
     kprintf("fs_write_file: write access denied on dev %d (read-only)\n",
             dp->dev);
     iput(dp);
-    return -1;
+    return ERR_PERMISSION_DENIED;
   }
 
   struct inode *ip = dirlookup(dp, file_part, NULL);
   if (ip == NULL) {
     if (offset != 0) {
       iput(dp);
-      return -1;
+      return ERR_NOT_FOUND;
     }
     ip = ialloc(dp->dev, FS_FILE);
     if (ip == NULL) {
       iput(dp);
-      return -1;
+      return ERR_NO_SPACE;
     }
     if (dirlink(dp, file_part, ip->inum) < 0) {
       iput(ip);
       iput(dp);
-      return -1;
+      return ERR_NO_SPACE;
     }
   } else if (offset == 0) {
     itrunc(ip, 0);
@@ -827,7 +828,7 @@ int fs_write_file(const char *name, const char *buf, int len, int offset) {
   int n = writei(ip, buf, offset, len);
   iput(ip);
   iput(dp);
-  return n;
+  return n < 0 ? ERR_NO_SPACE : n;
 }
 
 int fs_mkdir(const char *path) {
@@ -835,26 +836,26 @@ int fs_mkdir(const char *path) {
   struct inode *dp = namex(path, true, file_part);
   if (dp == NULL) {
     kprintf("fs_mkdir: attempt to mkdir in non-existent parent directory\n");
-    return -1;
+    return ERR_NOT_FOUND;
   }
 
   if (dp->dev == 0) {
     kprintf("fs_mkdir: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
-    return -1;
+    return ERR_PERMISSION_DENIED;
   }
 
   struct inode *ip = dirlookup(dp, file_part, NULL);
   if (ip != NULL) {
     iput(ip);
     iput(dp);
-    return -1;
+    return ERR_ALREADY_EXISTS;
   }
 
   ip = ialloc(dp->dev, FS_DIR);
   if (ip == NULL) {
     iput(dp);
-    return -1;
+    return ERR_NO_SPACE;
   }
 
   struct dirent dot;
@@ -864,7 +865,7 @@ int fs_mkdir(const char *path) {
   if (writei(ip, (char *)&dot, 0, sizeof(dot)) != sizeof(dot)) {
     iput(ip);
     iput(dp);
-    return -1;
+    return ERR_NO_SPACE;
   }
 
   struct dirent dotdot;
@@ -875,13 +876,13 @@ int fs_mkdir(const char *path) {
       sizeof(dotdot)) {
     iput(ip);
     iput(dp);
-    return -1;
+    return ERR_NO_SPACE;
   }
 
   if (dirlink(dp, file_part, ip->inum) < 0) {
     iput(ip);
     iput(dp);
-    return -1;
+    return ERR_NO_SPACE;
   }
 
   iput(ip);
@@ -912,13 +913,13 @@ int fs_rm(const char *path) {
   struct inode *dp = namex(path, true, file_part);
   if (dp == NULL) {
     kprintf("fs_rm: parent directory not found\n");
-    return -1;
+    return ERR_NOT_FOUND;
   }
 
   if (dp->dev == 0) {
     kprintf("fs_rm: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
-    return -1;
+    return ERR_PERMISSION_DENIED;
   }
 
   uint32_t off = 0;
@@ -926,7 +927,7 @@ int fs_rm(const char *path) {
   if (ip == NULL) {
     kprintf("fs_rm: file '%s' not found\n", file_part);
     iput(dp);
-    return -1;
+    return ERR_NOT_FOUND;
   }
 
   ilock(ip);
@@ -935,7 +936,7 @@ int fs_rm(const char *path) {
       kprintf("fs_rm: directory '%s' is not empty\n", file_part);
       iput(ip);
       iput(dp);
-      return -1;
+      return ERR_DIRECTORY_NOT_EMPTY;
     }
   }
 
@@ -945,7 +946,7 @@ int fs_rm(const char *path) {
     kprintf("fs_rm: failed to clear directory entry\n");
     iput(ip);
     iput(dp);
-    return -1;
+    return ERR_IO;
   }
 
   itrunc(ip, 0);

@@ -13,8 +13,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (mkdir(path) < 0) {
-    printf("mkdir: failed to create directory '%s'\n", path);
+  int ret = mkdir(path);
+  if (ret < 0) {
+    printf("mkdir: failed to create directory '%s': %s\n", path, strerror(ret));
     return 1;
   }
   return 0;

@@ -13,8 +13,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (rm(path) < 0) {
-    printf("rm: failed to remove '%s'\n", path);
+  int ret = rm(path);
+  if (ret < 0) {
+    printf("rm: failed to remove '%s': %s\n", path, strerror(ret));
     return 1;
   }
   return 0;

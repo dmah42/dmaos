@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
 
   int ret = write_file(filename, buf, strlen(buf), 0);
   if (ret < 0) {
-    printf("write: failed to write to file '%s'\n", filename);
+    printf("write: failed to write to file '%s': %s\n", filename, strerror(ret));
     return 1;
   }
   return 0;

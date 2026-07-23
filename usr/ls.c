@@ -26,7 +26,7 @@ void normalize_path(const char *base, const char *rel, char *dst, int dst_len) {
   }
   buf[sizeof(buf) - 1] = '\0';
 
-  char *tokens[MAX_PATH_DEPTH];
+  char tokens[MAX_PATH_DEPTH][MAX_FILENAME];
   int num_tokens = 0;
   char *p = buf;
   while (*p == '/') {
@@ -49,7 +49,9 @@ void normalize_path(const char *base, const char *rel, char *dst, int dst_len) {
       }
     } else if (strlen(p) > 0) {
       if (num_tokens < MAX_PATH_DEPTH) {
-        tokens[num_tokens++] = p;
+        strncpy(tokens[num_tokens], p, sizeof(tokens[num_tokens]) - 1);
+        tokens[num_tokens][sizeof(tokens[num_tokens]) - 1] = '\0';
+        ++num_tokens;
       }
     }
 

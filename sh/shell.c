@@ -257,8 +257,9 @@ void cd_cmd(const char *cmdline) {
   if (*path == '\0') {
     path = "/";
   }
-  if (chdir(path) < 0) {
-    printf("cd: %s: no such directory\n", path);
+  int ret = chdir(path);
+  if (ret < 0) {
+    printf("cd: %s: %s\n", path, strerror(ret));
   }
 }
 

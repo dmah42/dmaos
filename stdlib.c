@@ -1,4 +1,5 @@
 #include "stdlib.h"
+#include "errno.h"
 
 void putchar(char);
 void yield(void);
@@ -231,5 +232,36 @@ void sleep_ms(uint32_t ms) {
   uint64_t ticks = (uint64_t)ms * 10000;
   while (uptime() - start < ticks) {
     yield();
+  }
+}
+
+const char *strerror(int err) {
+  switch (err) {
+  case 0:
+    return "success";
+  case ERR_NOT_PERMITTED:
+    return "operation not permitted";
+  case ERR_NOT_FOUND:
+    return "no such file or directory";
+  case ERR_IO:
+    return "I/O error";
+  case ERR_BAD_FILE:
+    return "bad file number";
+  case ERR_PERMISSION_DENIED:
+    return "permission denied";
+  case ERR_ALREADY_EXISTS:
+    return "file exists";
+  case ERR_NOT_A_DIRECTORY:
+    return "not a directory";
+  case ERR_IS_A_DIRECTORY:
+    return "is a directory";
+  case ERR_INVALID_ARGUMENT:
+    return "invalid argument";
+  case ERR_NO_SPACE:
+    return "no space left on device";
+  case ERR_DIRECTORY_NOT_EMPTY:
+    return "directory not empty";
+  default:
+    return "unknown error";
   }
 }

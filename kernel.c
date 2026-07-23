@@ -1,5 +1,6 @@
 #include "kernel.h"
 
+#include "errno.h"
 #include "fs.h"
 #include "memory.h"
 #include "process.h"
@@ -225,7 +226,7 @@ void handle_syscall(struct trap_frame *f) {
     if (!validate_user_string(name) ||
         !validate_user_write_buffer(buf, FS_CHUNK_SIZE)) {
       kprintf("read_file: invalid user pointer(s)\n");
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       int ret = fs_read_file(name, buf, offset);
       if (ret < 0) {
@@ -241,7 +242,7 @@ void handle_syscall(struct trap_frame *f) {
     int buf_len = f->a2;
     if (buf_len <= 0 || !validate_user_write_buffer(buf, buf_len)) {
       kprintf("get_file_name: invalid buffer or buf_len %d\n", buf_len);
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       f->a0 = fs_get_file_name(index, buf, buf_len);
     }
@@ -256,7 +257,7 @@ void handle_syscall(struct trap_frame *f) {
     if (!validate_user_string(path) ||
         !validate_user_write_buffer(st, sizeof(struct stat))) {
       kprintf("stat: invalid pointer(s)\n");
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       f->a0 = fs_stat(path, st);
     }
@@ -265,12 +266,12 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_CHDIR: {
     const char *path = (const char *)f->a0;
     if (!validate_user_string(path)) {
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       struct inode *ip = NULL;
       int ret = fs_chdir(path, &ip);
       if (ret < 0) {
-        f->a0 = -1;
+        f->a0 = ret;
       } else {
         struct Process *proc = get_current_process();
         char new_path[MAX_PATH];
@@ -289,7 +290,7 @@ void handle_syscall(struct trap_frame *f) {
     char *buf = (char *)f->a0;
     int size = f->a1;
     if (size <= 0 || !validate_user_write_buffer(buf, size)) {
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       struct Process *proc = get_current_process();
       int len = strlen(proc->cwd_path);
@@ -310,7 +311,7 @@ void handle_syscall(struct trap_frame *f) {
     if (!validate_user_string(name) ||
         (len > 0 && !validate_user_read_buffer(buf, len))) {
       kprintf("write_file: invalid user pointer(s)\n");
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       f->a0 = fs_write_file(name, buf, len, offset);
     }
@@ -320,7 +321,7 @@ void handle_syscall(struct trap_frame *f) {
     const char *path = (const char *)f->a0;
     if (!validate_user_string(path)) {
       kprintf("mkdir: invalid path pointer\n");
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       f->a0 = fs_mkdir(path);
     }
@@ -330,7 +331,7 @@ void handle_syscall(struct trap_frame *f) {
     const char *path = (const char *)f->a0;
     if (!validate_user_string(path)) {
       kprintf("rm: invalid path pointer\n");
-      f->a0 = -1;
+      f->a0 = ERR_INVALID_ARGUMENT;
     } else {
       f->a0 = fs_rm(path);
     }

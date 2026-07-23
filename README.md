@@ -10,7 +10,7 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
 - **CPU Target**: 32-bit RISC-V (`riscv32-unknown-elf`).
 - **Memory Mapping**: SV32 paging system with kernel pages mapped directly and user pages mapped dynamically.
 - **Multitasking**: Cooperative scheduler with context switching, process spawning, and parent-child execution waiting.
-- **System Calls**: Parameter-specific assembly syscall routines (`syscall1` to `syscall4`) routing user space traps (`ecall`) to kernel handlers.
+- **System Calls**: Parameter-specific assembly syscall routines (`syscall1` to `syscall4`) routing user space traps (`ecall`) to kernel handlers. Returns detailed self-documenting negative error codes (`enum Errno` from `errno.h`) translated via `strerror` in user space.
 
 ### 2. Block Drivers & Mounting
 - **VirtIO MMIO**: Support for two concurrent VirtIO block device controllers mapped to separate MMIO slots (`0x10001000` and `0x10002000`) and distinct QEMU buses.
@@ -62,10 +62,6 @@ brew install llvm qemu
 ---
 
 ## Future Roadmap (TODOs)
-
-- [ ] **Detailed Syscall Error Codes**:
-  - Transition system call returns from simple `-1`/`0` to detailed POSIX-like error codes (e.g., `ENOENT` for missing files, `ENOTEMPTY` for non-empty directories, `EACCES` for read-only partitions).
-  - Update user utilities to print context-rich error messages.
 
 - [ ] **Stateful File Descriptors**:
   - Implement a stateful file descriptor table in the kernel and associated syscalls (`open`, `read`, `write`, `close`).
