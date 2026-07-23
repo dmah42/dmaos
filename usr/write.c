@@ -30,7 +30,14 @@ int main(int argc, char **argv) {
     }
   }
 
-  int ret = write_file(filename, buf, strlen(buf), 0);
+  int fd = open(filename, O_WRITE | O_CREATE | O_APPEND);
+  if (fd < 0) {
+    printf("write: failed to open file '%s': %s\n", filename, strerror(fd));
+    return 1;
+  }
+
+  int ret = write(fd, buf, strlen(buf));
+  close(fd);
   if (ret < 0) {
     printf("write: failed to write to file '%s': %s\n", filename, strerror(ret));
     return 1;

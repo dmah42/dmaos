@@ -36,14 +36,19 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  int fd = open(filename, O_READ);
+  if (fd < 0) {
+    printf("cat: '%s': %s\n", filename, strerror(fd));
+    return 1;
+  }
+
   char buf[FS_CHUNK_SIZE + 1];
-  int offset = 0;
   int read_bytes;
-  while ((read_bytes = read_file(filename, buf, offset)) > 0) {
+  while ((read_bytes = read(fd, buf, FS_CHUNK_SIZE)) > 0) {
     buf[read_bytes] = '\0';
     printf("%s", buf);
-    offset += read_bytes;
   }
+  close(fd);
   if (read_bytes < 0) {
     printf("\ncat: error reading '%s': %s\n", filename, strerror(read_bytes));
     return 1;

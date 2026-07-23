@@ -1,5 +1,7 @@
 #pragma once
 
+#include "file.h"
+
 #ifdef HOST_BUILD
 #include <stdint.h>
 #include <string.h>
@@ -65,10 +67,20 @@ struct inode {
   uint32_t addrs[NDIRECT + 1];
 };
 
+#define O_READ 0x001
+#define O_WRITE 0x002
+#define O_RDWR (O_READ | O_WRITE)
+#define O_CREATE 0x004
+#define O_TRUNC 0x008
+#define O_APPEND 0x010
+
 void fs_init();
 
-int fs_read_file(const char *name, char *buf, int offset);
-int fs_write_file(const char *name, const char *buf, int len, int offset);
+int fs_create(const char *path, int flags);
+int fs_open(const char *path, int flags);
+int fs_read(int fd, char *buf, int n);
+int fs_write(int fd, const char *buf, int n);
+int fs_close(int fd);
 int fs_rm(const char *path);
 
 int fs_get_file_name(int index, char *buf, int buf_len);

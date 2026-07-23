@@ -112,16 +112,20 @@ int main(int argc, char **argv) {
   // Print target directory directory header
   printf("Directory of %s\n", target_path);
 
-  // Read directory entries using read_file
+  int fd = open(target_path, O_READ);
+  if (fd < 0) {
+    printf("ls: '%s': %s\n", target_path, strerror(fd));
+    return 1;
+  }
+
   char chunk[FS_CHUNK_SIZE];
-  int offset = 0;
   int read_bytes;
 
   struct dirent entries[MAX_DIR_ENTRIES];
   struct stat stats[MAX_DIR_ENTRIES];
   int entry_count = 0;
 
-  while ((read_bytes = read_file(target_path, chunk, offset)) > 0) {
+  while ((read_bytes = read(fd, chunk, FS_CHUNK_SIZE)) > 0) {
     for (int i = 0; i < read_bytes; i += sizeof(struct dirent)) {
       struct dirent *de = (struct dirent *)(chunk + i);
       if (de->inum == 0) {
@@ -154,8 +158,8 @@ int main(int argc, char **argv) {
         ++entry_count;
       }
     }
-    offset += read_bytes;
   }
+  close(fd);
 
   // Now print the entries aligned nicely!
   size_t longest_name = 0;

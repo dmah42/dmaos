@@ -1,6 +1,7 @@
 #include "kernel.h"
 
 #include "errno.h"
+#include "file.h"
 #include "fs.h"
 #include "memory.h"
 #include "process.h"
@@ -219,21 +220,48 @@ void handle_syscall(struct trap_frame *f) {
     yield();
     PANIC("unreachable");
     break;
-  case SYSCALL_READ_FILE: {
-    const char *name = (const char *)f->a0;
-    char *buf = (char *)f->a1;
-    int offset = f->a2;
-    if (!validate_user_string(name) ||
-        !validate_user_write_buffer(buf, FS_CHUNK_SIZE)) {
-      kprintf("read_file: invalid user pointer(s)\n");
+  case SYSCALL_OPEN: {
+    const char *path = (const char *)f->a0;
+    int flags = f->a1;
+    if (!validate_user_string(path)) {
+      kprintf("open: invalid path pointer\n");
       f->a0 = ERR_INVALID_ARGUMENT;
     } else {
-      int ret = fs_read_file(name, buf, offset);
-      if (ret < 0) {
-        kprintf("read_file: file '%s' not found or read failed\n", name);
+      if (flags & O_CREATE) {
+        f->a0 = fs_create(path, flags);
+      } else {
+        f->a0 = fs_open(path, flags);
       }
-      f->a0 = ret;
     }
+    break;
+  }
+  case SYSCALL_READ: {
+    int fd = f->a0;
+    char *buf = (char *)f->a1;
+    int n = f->a2;
+    if (n <= 0 || !validate_user_write_buffer(buf, n)) {
+      kprintf("read: invalid buffer or size %d\n", n);
+      f->a0 = ERR_INVALID_ARGUMENT;
+    } else {
+      f->a0 = fs_read(fd, buf, n);
+    }
+    break;
+  }
+  case SYSCALL_WRITE: {
+    int fd = f->a0;
+    const char *buf = (const char *)f->a1;
+    int n = f->a2;
+    if (n > 0 && !validate_user_read_buffer(buf, n)) {
+      kprintf("write: invalid buffer or size %d\n", n);
+      f->a0 = ERR_INVALID_ARGUMENT;
+    } else {
+      f->a0 = fs_write(fd, buf, n);
+    }
+    break;
+  }
+  case SYSCALL_CLOSE: {
+    int fd = f->a0;
+    f->a0 = fs_close(fd);
     break;
   }
   case SYSCALL_GET_FILE_NAME: {
@@ -303,20 +331,7 @@ void handle_syscall(struct trap_frame *f) {
     }
     break;
   }
-  case SYSCALL_WRITE_FILE: {
-    const char *name = (const char *)f->a0;
-    const char *buf = (const char *)f->a1;
-    int len = f->a2;
-    int offset = f->a4;
-    if (!validate_user_string(name) ||
-        (len > 0 && !validate_user_read_buffer(buf, len))) {
-      kprintf("write_file: invalid user pointer(s)\n");
-      f->a0 = ERR_INVALID_ARGUMENT;
-    } else {
-      f->a0 = fs_write_file(name, buf, len, offset);
-    }
-    break;
-  }
+
   case SYSCALL_MKDIR: {
     const char *path = (const char *)f->a0;
     if (!validate_user_string(path)) {
@@ -477,6 +492,7 @@ void kmain(void) {
   kprintf(RALIGN GREEN "[VirtIO initialized]\n" DEFAULT);
 
   kprintf("Initializing file system\n");
+  file_init();
   fs_init();
   kprintf(RALIGN GREEN "[File system initialized]\n" DEFAULT);
 

@@ -21,6 +21,7 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
 ### 3. Filesystem Layer
 - **Staging-Based Image Builds**: The build system compiles and stages the entire filesystem tree under `build/root/` on the host, and the filesystem image utility `mkfs` recursively walks this staging root to produce the raw disk images.
 - **Directories & Path Resolution**: Dynamic path resolution (`namei`/`namex`) with cross-boundary mount traversal and normalized path tracking.
+- **Stateful File Descriptors**: Process-level open file descriptor tracking (`proc->ofile` up to `NUM_FILES_PER_PROCESS`) mapped to a global descriptor table (`GLOBAL_OPEN_FILE_LIMIT`), with automatic cleanup and console warning prints on memory leak detection during process exit.
 - **Write Protections**: Writes, folder creations, and deletions are prohibited on Device 0 and allowed only under the persistent `/home` directory (Device 1).
 - **Leak-Safe Overwriting**: Automatic block deallocation and file truncation (`itrunc`) when files are overwritten at offset 0.
 
@@ -30,7 +31,7 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
   - `cat` - read and display file contents.
   - `ls` - list directory structures.
   - `mkdir` - create persistent directories (restricted to `/home`).
-  - `write` - write/overwrite text strings to a file (restricted to `/home`).
+  - `write` - write/append text strings to a file (always appends; restricted to `/home`).
   - `rm` - remove files and empty directories (restricted to `/home`).
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
@@ -62,10 +63,6 @@ brew install llvm qemu
 ---
 
 ## Future Roadmap (TODOs)
-
-- [ ] **Stateful File Descriptors**:
-  - Implement a stateful file descriptor table in the kernel and associated syscalls (`open`, `read`, `write`, `close`).
-  - Support read/write seek offsets and automatic atomic file appending.
 
 - [ ] **Dynamic Memory Allocation (`malloc`/`free`)**:
   - Implement a heap allocator (such as a first-fit or buddy allocator) in the user-space standard library to support dynamic allocations.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "file.h"
 #include "fs.h"
 #include "stdlib.h"
 
@@ -16,6 +17,7 @@ struct Process {
   uint8_t stack[8192];
   struct inode *cwd;
   char cwd_path[MAX_PATH];
+  struct File *ofile[NUM_FILES_PER_PROCESS];
 };
 
 void process_init();

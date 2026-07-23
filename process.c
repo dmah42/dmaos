@@ -35,6 +35,8 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     PANIC("+++ REDO FROM START +++");
   }
 
+  memset(proc->ofile, 0, sizeof(proc->ofile));
+
   if (current_proc != NULL && current_proc->cwd != NULL) {
     proc->cwd = iget(current_proc->cwd->dev, current_proc->cwd->inum);
     strncpy(proc->cwd_path, current_proc->cwd_path, sizeof(proc->cwd_path) - 1);
@@ -175,6 +177,15 @@ void free_process_pages(struct Process *proc) {
   if (proc->cwd != NULL) {
     iput(proc->cwd);
     proc->cwd = NULL;
+  }
+
+  for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
+    if (proc->ofile[fd] != NULL) {
+      kprintf(RED "process exit: PID %d leaked file descriptor %d!\n" DEFAULT,
+              proc->pid, fd);
+      file_close(proc->ofile[fd]);
+      proc->ofile[fd] = NULL;
+    }
   }
 
   if (!proc->page_table)

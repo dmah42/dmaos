@@ -355,19 +355,6 @@ void fs_init() {
 }
 
 /*
- * Reads content of named file into user buffer (handles read offset).
- */
-int fs_read_file(const char *name, char *buf, int offset) {
-  struct inode *ip = namei(name);
-  if (ip == NULL) {
-    return ERR_NOT_FOUND;
-  }
-  int n = readi(ip, buf, offset, FS_CHUNK_SIZE);
-  iput(ip);
-  return n;
-}
-
-/*
  * Populates file name at index from root directory (ls compatibility).
  */
 int fs_get_file_name(int index, char *buf, int buf_len) {
@@ -790,45 +777,134 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
   return 0;
 }
 
-int fs_write_file(const char *name, const char *buf, int len, int offset) {
+static int alloc_file_descriptor(struct inode *ip, int flags) {
+  struct File *f = file_alloc();
+  if (f == NULL) {
+    kprintf("alloc_file_descriptor: global file table is full\n");
+    iput(ip);
+    return ERR_NO_SPACE;
+  }
+
+  f->ip = ip;
+  f->readable = (flags & O_READ) != 0;
+  f->writable = (flags & O_WRITE) != 0;
+  f->off = (flags & O_APPEND) ? ip->size : 0;
+
+  struct Process *proc = get_current_process();
+  for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
+    if (proc->ofile[fd] == NULL) {
+      proc->ofile[fd] = f;
+      return fd;
+    }
+  }
+
+  kprintf("alloc_file_descriptor: process file descriptor table is full\n");
+  file_close(f);
+  return ERR_NO_SPACE;
+}
+
+int fs_create(const char *path, int flags) {
   char file_part[256];
-  struct inode *dp = namex(name, true, file_part);
+  struct inode *dp = namex(path, true, file_part);
   if (dp == NULL) {
-    kprintf("fs_write_file: attempt to write to null inode\n");
+    kprintf("fs_create: parent directory not found for path '%s'\n", path);
     return ERR_NOT_FOUND;
   }
 
-  if (dp->dev == 0) {
-    kprintf("fs_write_file: write access denied on dev %d (read-only)\n",
-            dp->dev);
+  if (dp->dev == 0 && (flags & (O_WRITE | O_CREATE | O_TRUNC | O_APPEND))) {
+    kprintf("fs_create: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
     return ERR_PERMISSION_DENIED;
   }
 
   struct inode *ip = dirlookup(dp, file_part, NULL);
   if (ip == NULL) {
-    if (offset != 0) {
-      iput(dp);
-      return ERR_NOT_FOUND;
-    }
     ip = ialloc(dp->dev, FS_FILE);
     if (ip == NULL) {
+      kprintf("fs_create: inode allocation failed\n");
       iput(dp);
       return ERR_NO_SPACE;
     }
     if (dirlink(dp, file_part, ip->inum) < 0) {
+      kprintf("fs_create: dirlink failed\n");
       iput(ip);
       iput(dp);
       return ERR_NO_SPACE;
     }
-  } else if (offset == 0) {
+  } else {
+    ilock(ip);
+    if ((flags & O_TRUNC) && (ip->type == FS_FILE)) {
+      itrunc(ip, 0);
+    }
+  }
+
+  iput(dp);
+  return alloc_file_descriptor(ip, flags);
+}
+
+int fs_open(const char *path, int flags) {
+  struct inode *ip = namei(path);
+  if (ip == NULL) {
+    return ERR_NOT_FOUND;
+  }
+  ilock(ip);
+
+  if (ip->dev == 0 && (flags & (O_WRITE | O_TRUNC))) {
+    kprintf("fs_open: write access denied on dev %d (read-only)\n", ip->dev);
+    iput(ip);
+    return ERR_PERMISSION_DENIED;
+  }
+
+  if ((flags & O_TRUNC) && (ip->type == FS_FILE)) {
     itrunc(ip, 0);
   }
 
-  int n = writei(ip, buf, offset, len);
-  iput(ip);
-  iput(dp);
-  return n < 0 ? ERR_NO_SPACE : n;
+  return alloc_file_descriptor(ip, flags);
+}
+
+int fs_read(int fd, char *buf, int n) {
+  struct Process *proc = get_current_process();
+  if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
+    return ERR_BAD_FILE;
+  }
+  struct File *f = proc->ofile[fd];
+  if (!f->readable) {
+    return ERR_PERMISSION_DENIED;
+  }
+
+  int r = readi(f->ip, buf, f->off, n);
+  if (r > 0) {
+    f->off += r;
+  }
+  return r;
+}
+
+int fs_write(int fd, const char *buf, int n) {
+  struct Process *proc = get_current_process();
+  if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
+    return ERR_BAD_FILE;
+  }
+  struct File *f = proc->ofile[fd];
+  if (!f->writable) {
+    return ERR_PERMISSION_DENIED;
+  }
+
+  int w = writei(f->ip, buf, f->off, n);
+  if (w > 0) {
+    f->off += w;
+  }
+  return w < 0 ? ERR_NO_SPACE : w;
+}
+
+int fs_close(int fd) {
+  struct Process *proc = get_current_process();
+  if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
+    return ERR_BAD_FILE;
+  }
+  struct File *f = proc->ofile[fd];
+  proc->ofile[fd] = NULL;
+  file_close(f);
+  return 0;
 }
 
 int fs_mkdir(const char *path) {

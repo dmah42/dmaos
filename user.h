@@ -8,8 +8,10 @@ void putchar(char ch);
 int getchar(void);
 int getchar_nonblock(void);
 
-int read_file(const char *name, char *buf, int offset);
-int write_file(const char *name, const char *buf, int len, int offset);
+int open(const char *path, int flags);
+int read(int fd, void *buf, int n);
+int write(int fd, const void *buf, int n);
+int close(int fd);
 int rm(const char *path);
 
 int get_file_name(int index, char *buf, int buf_len);

@@ -90,15 +90,16 @@ void init_config(void) {
   memset(config, 0, sizeof(config));
   int offset = 0;
   int bytes_read = 0;
-  while (offset < MAX_CONFIG_LEN - 1) {
-    bytes_read = read_file("/cfg/dmash.cfg", config + offset, offset);
-    if (bytes_read < 0) {
-      break;
+  int fd = open("/cfg/dmash.cfg", O_READ);
+  if (fd >= 0) {
+    while (offset < MAX_CONFIG_LEN - 1) {
+      bytes_read = read(fd, config + offset, MAX_CONFIG_LEN - 1 - offset);
+      if (bytes_read <= 0) {
+        break;
+      }
+      offset += bytes_read;
     }
-    if (bytes_read == 0) {
-      break;
-    }
-    offset += bytes_read;
+    close(fd);
   }
   config[offset] = '\0';
 
