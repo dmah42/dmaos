@@ -5,22 +5,109 @@
 
 const char *path_dirs[MAX_PATH_DIRS];
 int num_path_dirs = 0;
-char path_buf[MAX_PATH] = "/bin"; // Default fallback
 
-void init_path(void) {
-  char config[MAX_PATH];
+// Default fallbacks
+char path_buf[MAX_PATH] = "/bin";
+char prompt_fmt[256] = "# ";
+char msg_fmt[256] = "\nwelcome to dmash\n";
+
+void print_formatted(const char *fmt, const char *cwd) {
+  const char *p = fmt;
+  if (*p == '"') {
+    ++p;
+  }
+
+  int len = strlen(p);
+  if (len > 0 && p[len - 1] == '"') {
+    --len;
+  }
+
+  for (int i = 0; i < len;) {
+    if (p[i] == '\\' && i + 1 < len) {
+      if (p[i + 1] == 'n') {
+        printf("\n");
+      } else if (p[i + 1] == 'r') {
+        printf("\r");
+      } else if (p[i + 1] == 't') {
+        printf("\t");
+      } else {
+        putchar(p[i]);
+        putchar(p[i + 1]);
+      }
+      i += 2;
+    } else if (p[i] == '<') {
+      int start = i + 1;
+      int end = start;
+      while (end < len && p[end] != '>') {
+        ++end;
+      }
+      if (end < len && p[end] == '>') {
+        char tag[32];
+        int tag_len = end - start;
+        if (tag_len >= (int)sizeof(tag)) {
+          tag_len = sizeof(tag) - 1;
+        }
+        memcpy(tag, p + start, tag_len);
+        tag[tag_len] = '\0';
+
+        if (strcmp(tag, "cwd") == 0) {
+          printf("%s", cwd);
+        } else if (strcmp(tag, "blue") == 0) {
+          printf(BLUE);
+        } else if (strcmp(tag, "green") == 0) {
+          printf(GREEN);
+        } else if (strcmp(tag, "red") == 0) {
+          printf(RED);
+        } else if (strcmp(tag, "yellow") == 0) {
+          printf(YELLOW);
+        } else if (strcmp(tag, "magenta") == 0) {
+          printf(MAGENTA);
+        } else if (strcmp(tag, "cyan") == 0) {
+          printf(CYAN);
+        } else if (strcmp(tag, "bold") == 0) {
+          printf(BOLD);
+        } else if (strcmp(tag, "default") == 0) {
+          printf(DEFAULT);
+        } else {
+          printf("<%s>", tag);
+        }
+        i = end + 1;
+      } else {
+        putchar('<');
+        ++i;
+      }
+    } else {
+      putchar(p[i]);
+      ++i;
+    }
+  }
+}
+
+#define MAX_CONFIG_LEN (1024)
+
+void init_config(void) {
+  char config[MAX_CONFIG_LEN];
   memset(config, 0, sizeof(config));
-  int n = read_file("/cfg/dmash.cfg", config, 0);
-  if (n > 0) {
-    config[n] = '\0';
+  int offset = 0;
+  int bytes_read = 0;
+  while (offset < MAX_CONFIG_LEN - 1) {
+    bytes_read = read_file("/cfg/dmash.cfg", config + offset, offset);
+    if (bytes_read < 0) {
+      break;
+    }
+    if (bytes_read == 0) {
+      break;
+    }
+    offset += bytes_read;
+  }
+  config[offset] = '\0';
 
-    // Parse config lines to find PATH=
+  if (offset > 0) {
     char *line = config;
-    bool found_path = false;
     while (*line) {
       char *eol = line;
       while (*eol && *eol != '\n' && *eol != '\r') {
-        eol++;
+        ++eol;
       }
       char orig_char = *eol;
       *eol = '\0';
@@ -28,8 +115,12 @@ void init_path(void) {
       if (strncmp(line, "PATH=", 5) == 0) {
         strncpy(path_buf, line + 5, sizeof(path_buf) - 1);
         path_buf[sizeof(path_buf) - 1] = '\0';
-        found_path = true;
-        break;
+      } else if (strncmp(line, "PROMPT=", 7) == 0) {
+        strncpy(prompt_fmt, line + 7, sizeof(prompt_fmt) - 1);
+        prompt_fmt[sizeof(prompt_fmt) - 1] = '\0';
+      } else if (strncmp(line, "MSG=", 4) == 0) {
+        strncpy(msg_fmt, line + 4, sizeof(msg_fmt) - 1);
+        msg_fmt[sizeof(msg_fmt) - 1] = '\0';
       }
 
       if (orig_char == '\r' || orig_char == '\n') {
@@ -42,31 +133,9 @@ void init_path(void) {
         break;
       }
     }
-
-    if (!found_path) {
-      // Check if first line doesn't contain '=' (a plain path string)
-      line = config;
-      char *eol = line;
-      while (*eol && *eol != '\n' && *eol != '\r') {
-        ++eol;
-      }
-      *eol = '\0';
-
-      bool has_equals = false;
-      for (char *p = line; *p; ++p) {
-        if (*p == '=') {
-          has_equals = true;
-          break;
-        }
-      }
-      if (!has_equals && strlen(line) > 0) {
-        strncpy(path_buf, line, sizeof(path_buf) - 1);
-        path_buf[sizeof(path_buf) - 1] = '\0';
-      }
-    }
   }
 
-  // Now, split path_buf by ':' and store pointers in path_dirs
+  // Split path_buf by ':' and store pointers in path_dirs
   char *p = path_buf;
   num_path_dirs = 0;
   while (*p && num_path_dirs < MAX_PATH_DIRS) {
@@ -253,21 +322,11 @@ bool detect_utf8(void) {
   return (width == 1);
 }
 
-const char *utf8_welcome = "\n" BOLD GREEN "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ" DEFAULT "\n";
-const char *ascii_welcome = "\nwelcome to dmash\n";
-
-const char *utf8_prompt = BOLD " ∅" DEFAULT " ";
-const char *ascii_prompt = BOLD " #" DEFAULT " ";
-
 int main(void) {
-  init_path();
-  bool use_utf8 = detect_utf8();
+  init_config();
+  detect_utf8();
 
-  if (use_utf8) {
-    printf(utf8_welcome);
-  } else {
-    printf(ascii_welcome);
-  }
+  print_formatted(msg_fmt, "");
 
   while (1) {
     // Get CWD
@@ -277,8 +336,7 @@ int main(void) {
       cwd[sizeof(cwd) - 1] = '\0';
     }
 
-    const char *prompt = use_utf8 ? utf8_prompt : ascii_prompt;
-    printf(BLUE "%s" DEFAULT "%s", cwd, prompt);
+    print_formatted(prompt_fmt, cwd);
 
     char cmdline[128];
     int i = 0;

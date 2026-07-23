@@ -129,11 +129,11 @@ int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
     kprintf("readi: NULL inode pointer\n");
     return -1;
   }
+  ilock(ip);
   if (ip->type == FS_UNUSED) {
     kprintf("readi: inode %d is unused\n", ip->inum);
     return -1;
   }
-  ilock(ip);
 
   if (offset > ip->size || offset + n < offset) {
     kprintf(
@@ -424,7 +424,8 @@ int fs_chdir(const char *path, struct inode **pip) {
   return 0;
 }
 
-void fs_normalize_path(const char *base, const char *rel, char *dst, size_t dst_len) {
+void fs_normalize_path(const char *base, const char *rel, char *dst,
+                       size_t dst_len) {
   char buf[256];
   if (rel[0] == '/') {
     strncpy(buf, rel, sizeof(buf) - 1);
