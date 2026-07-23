@@ -14,28 +14,29 @@ qflags := -machine virt -bios default -nographic \
 
 ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c
 kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h
-usources := shell.c stdlib.c user.c
+ssources := shell.c stdlib.c user.c
 uheaders := user.h fs.h stdlib.h
 utxts    := hello.txt lorem.txt meow.txt
+uconfigs := dmash.cfg
 uprogs   := cat hello ls snake
 
 .PHONY: all clean run
-.PRECIOUS: build/%.elf
+.PRECIOUS: build/bin/%.elf
 
 all: kernel.elf disk.img
 
-kernel.elf: $(ksources) $(kheaders) kernel.ld shell.bin.o $(addprefix build/, $(uprogs))
+kernel.elf: $(ksources) $(kheaders) kernel.ld shell.bin.o
 	$(cc) $(cflags) $(kflags) -o $@ $(ksources) shell.bin.o
 
 run: kernel.elf disk.img
 	$(qemu) $(qflags) -kernel kernel.elf
 
 clean:
-	rm -f kernel.map kernel.elf shell.map shell.elf shell.bin.o shell.bin disk.img
-	rm -rf bin build
+	@rm -f kernel.map kernel.elf shell.map shell.elf shell.bin.o shell.bin disk.img
+	@rm -rf bin build
 
-shell.elf: $(usources) $(uheaders) user.ld
-	$(cc) $(cflags) $(uflags) -Wl,-Map=shell.map -o $@ $(usources)
+shell.elf: $(ssources) $(uheaders) user.ld
+	$(cc) $(cflags) $(uflags) -Wl,-Map=shell.map -o $@ $(ssources)
 
 shell.bin: shell.elf
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary shell.elf shell.bin
@@ -47,16 +48,20 @@ bin/mkfs: tools/mkfs.c
 	@mkdir -p bin
 	$(cc) -Wall -Wextra -O2 -o $@ $< -DHOST_BUILD
 
-disk.img: bin/mkfs $(addprefix build/cfg/, $(utxts)) $(addprefix build/, $(uprogs))
-	bin/mkfs $@ $(addprefix build/cfg/, $(utxts)) $(addprefix build/, $(uprogs))
+disk.img: bin/mkfs $(addprefix build/, $(utxts)) $(addprefix build/cfg/, $(uconfigs)) $(addprefix build/bin/, $(uprogs))
+	bin/mkfs $@ $(addprefix build/, $(utxts)) $(addprefix build/cfg/, $(uconfigs)) $(addprefix build/bin/, $(uprogs))
 
 build/cfg/%: disk/%
 	@mkdir -p build/cfg
 	@cp $< $@
 
-build/%.elf: usr/%.c stdlib.c user.c $(uheaders) user.ld
-	@mkdir -p build
-	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=build/$*.map -o $@ $(filter %.c, $^)
+build/%: disk/%
+	@mkdir -p build/
+	@cp $< $@
 
-build/%: build/%.elf
+build/bin/%.elf: usr/%.c stdlib.c user.c $(uheaders) user.ld
+	@mkdir -p build/bin
+	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=build/bin/$*.map -o $@ $(filter %.c, $^)
+
+build/bin/%: build/bin/%.elf
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@

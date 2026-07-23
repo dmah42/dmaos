@@ -66,14 +66,27 @@ char *strncpy(char *dst, const char *src, size_t n) {
 char *strncat(char *dst, const char *src, size_t n) {
   char *orig = dst;
   while (*dst) {
-    dst++;
+    ++dst;
   }
   while (n > 0 && *src) {
     *dst++ = *src++;
-    n--;
+    --n;
   }
   *dst = '\0';
   return orig;
+}
+
+char *strchr(const char *s, int c) {
+  while (*s) {
+    if (*s == (char)c) {
+      return (char *)s;
+    }
+    ++s;
+  }
+  if (c == '\0') {
+    return (char *)s;
+  }
+  return NULL;
 }
 
 void vprintf(void (*putc)(char), const char *fmt, va_list vargs) {

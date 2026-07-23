@@ -1,11 +1,172 @@
 #include "stdlib.h"
 #include "user.h"
 
+#define MAX_PATH_DIRS 32
+
+const char *path_dirs[MAX_PATH_DIRS];
+int num_path_dirs = 0;
+char path_buf[256] = "/bin"; // Default fallback
+
+void init_path(void) {
+  char config[256];
+  memset(config, 0, sizeof(config));
+  int n = read_file("/cfg/dmash.cfg", config, 0);
+  if (n > 0) {
+    config[n] = '\0';
+
+    // Parse config lines to find PATH=
+    char *line = config;
+    bool found_path = false;
+    while (*line) {
+      char *eol = line;
+      while (*eol && *eol != '\n' && *eol != '\r') {
+        eol++;
+      }
+      char orig_char = *eol;
+      *eol = '\0';
+
+      if (strncmp(line, "PATH=", 5) == 0) {
+        strncpy(path_buf, line + 5, sizeof(path_buf) - 1);
+        path_buf[sizeof(path_buf) - 1] = '\0';
+        found_path = true;
+        break;
+      }
+
+      if (orig_char == '\r' || orig_char == '\n') {
+        *eol = orig_char;
+        line = eol + 1;
+        if (orig_char == '\r' && *line == '\n') {
+          ++line;
+        }
+      } else {
+        break;
+      }
+    }
+
+    if (!found_path) {
+      // Check if first line doesn't contain '=' (a plain path string)
+      line = config;
+      char *eol = line;
+      while (*eol && *eol != '\n' && *eol != '\r') {
+        ++eol;
+      }
+      *eol = '\0';
+
+      bool has_equals = false;
+      for (char *p = line; *p; ++p) {
+        if (*p == '=') {
+          has_equals = true;
+          break;
+        }
+      }
+      if (!has_equals && strlen(line) > 0) {
+        strncpy(path_buf, line, sizeof(path_buf) - 1);
+        path_buf[sizeof(path_buf) - 1] = '\0';
+      }
+    }
+  }
+
+  // Now, split path_buf by ':' and store pointers in path_dirs
+  char *p = path_buf;
+  num_path_dirs = 0;
+  while (*p && num_path_dirs < MAX_PATH_DIRS) {
+    while (*p == ':') {
+      ++p;
+    }
+    if (*p == '\0') {
+      break;
+    }
+
+    path_dirs[num_path_dirs++] = p;
+
+    char *colon = strchr(p, ':');
+    if (colon) {
+      *colon = '\0';
+      p = colon + 1;
+    } else {
+      break;
+    }
+  }
+}
+
 void run_command(const char *cmdline) {
-  int pid = spawn(cmdline);
-  if (pid >= 0) {
-    wait(pid);
-  } else {
+  // Extract command name (first word of cmdline)
+  char cmd_name[64];
+  int i = 0;
+  while (cmdline[i] && cmdline[i] != ' ' && i < (int)sizeof(cmd_name) - 1) {
+    cmd_name[i] = cmdline[i];
+    ++i;
+  }
+  cmd_name[i] = '\0';
+
+  if (i == 0) {
+    return;
+  }
+
+  // Check if cmd_name has a slash
+  bool has_slash = false;
+  for (int j = 0; j < i; ++j) {
+    if (cmd_name[j] == '/') {
+      has_slash = true;
+      break;
+    }
+  }
+
+  if (has_slash) {
+    int pid = spawn(cmdline);
+    if (pid >= 0) {
+      wait(pid);
+    } else {
+      printf("unknown command: %s\n", cmdline);
+    }
+    return;
+  }
+
+  // Search in pre-parsed path_dirs
+  bool found = false;
+  for (int d = 0; d < num_path_dirs; ++d) {
+    const char *dir = path_dirs[d];
+
+    // Construct full path: dir + "/" + cmd_name
+    char full_path[256];
+    strncpy(full_path, dir, sizeof(full_path) - 1);
+    full_path[sizeof(full_path) - 1] = '\0';
+
+    int d_len = strlen(full_path);
+    if (d_len > 0 && full_path[d_len - 1] != '/') {
+      strncat(full_path, "/", sizeof(full_path) - d_len - 1);
+    }
+    strncat(full_path, cmd_name, sizeof(full_path) - strlen(full_path) - 1);
+
+    struct stat st;
+    if (stat(full_path, &st) >= 0 && st.type == FS_FILE) {
+      // Reconstruct the cmdline: full_path + rest of cmdline arguments
+      char new_cmdline[256];
+      strncpy(new_cmdline, full_path, sizeof(new_cmdline) - 1);
+      new_cmdline[sizeof(new_cmdline) - 1] = '\0';
+
+      const char *args = cmdline + i;
+      while (*args == ' ') {
+        ++args;
+      }
+
+      if (*args != '\0') {
+        strncat(new_cmdline, " ",
+                sizeof(new_cmdline) - strlen(new_cmdline) - 1);
+        strncat(new_cmdline, args,
+                sizeof(new_cmdline) - strlen(new_cmdline) - 1);
+      }
+
+      int pid = spawn(new_cmdline);
+      if (pid >= 0) {
+        wait(pid);
+        found = true;
+        break;
+      }
+    }
+  }
+
+  if (!found) {
     printf("unknown command: %s\n", cmdline);
   }
 }
@@ -71,12 +232,13 @@ bool detect_utf8(void) {
 }
 
 const char *utf8_welcome = "\n" BOLD GREEN "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ" DEFAULT "\n";
-const char *ascii_welcome = "\nWeLcOmE tO dMaSh\n";
+const char *ascii_welcome = "\nwelcome to dmash\n";
 
 const char *utf8_prompt = BOLD "∅ " DEFAULT;
 const char *ascii_prompt = "# ";
 
 int main(void) {
+  init_path();
   bool use_utf8 = detect_utf8();
 
   if (use_utf8) {

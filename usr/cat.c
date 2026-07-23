@@ -6,8 +6,14 @@ int main(int argc, char **argv) {
     printf("usage: cat <filename>\n");
     return 1;
   }
-  if (strncmp(argv[0], "cat", 3) != 0) {
-    printf("unexpected call to cat");
+  const char *progname = argv[0];
+  for (const char *p = argv[0]; *p; ++p) {
+    if (*p == '/') {
+      progname = p + 1;
+    }
+  }
+  if (strncmp(progname, "cat", 3) != 0) {
+    printf("unexpected call to cat\n");
     return 1;
   }
 
@@ -20,11 +26,11 @@ int main(int argc, char **argv) {
 
   struct stat st;
   if (stat(filename, &st) < 0) {
-    printf("cat: %s: no such file or directory\n", filename);
+    printf("cat: '%s': no such file or directory\n", filename);
     return 1;
   }
   if (st.type == FS_DIR) {
-    printf("cat: %s: Is a directory\n", filename);
+    printf("cat: '%s' is a directory\n", filename);
     return 1;
   }
 
