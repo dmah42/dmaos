@@ -121,6 +121,10 @@ int mkdir(const char *path) {
   return syscall1(SYSCALL_MKDIR, (uint32_t)path);
 }
 
+int rm(const char *path) {
+  return syscall1(SYSCALL_RM, (uint32_t)path);
+}
+
 extern int main(int argc, char **argv);
 
 void umain(int argc, char **argv) {

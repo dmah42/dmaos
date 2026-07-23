@@ -326,6 +326,16 @@ void handle_syscall(struct trap_frame *f) {
     }
     break;
   }
+  case SYSCALL_RM: {
+    const char *path = (const char *)f->a0;
+    if (!validate_user_string(path)) {
+      kprintf("rm: invalid path pointer\n");
+      f->a0 = -1;
+    } else {
+      f->a0 = fs_rm(path);
+    }
+    break;
+  }
   case SYSCALL_SPAWN: {
     const char *cmdline = (const char *)f->a0;
     kprintf("spawn: '%s'\n", cmdline);

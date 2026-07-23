@@ -888,3 +888,72 @@ int fs_mkdir(const char *path) {
   iput(dp);
   return 0;
 }
+
+static bool is_dir_empty(struct inode *ip) {
+  struct dirent de;
+  for (uint32_t off = 0; off < ip->size; off += sizeof(de)) {
+    if (readi(ip, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+      return false;
+    }
+    if (de.inum != 0) {
+      char name_buf[DIRSIZ + 1];
+      memcpy(name_buf, de.name, DIRSIZ);
+      name_buf[DIRSIZ] = '\0';
+      if (strcmp(name_buf, ".") != 0 && strcmp(name_buf, "..") != 0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+int fs_rm(const char *path) {
+  char file_part[256];
+  struct inode *dp = namex(path, true, file_part);
+  if (dp == NULL) {
+    kprintf("fs_rm: parent directory not found\n");
+    return -1;
+  }
+
+  if (dp->dev == 0) {
+    kprintf("fs_rm: write access denied on dev %d (read-only)\n", dp->dev);
+    iput(dp);
+    return -1;
+  }
+
+  uint32_t off = 0;
+  struct inode *ip = dirlookup(dp, file_part, &off);
+  if (ip == NULL) {
+    kprintf("fs_rm: file '%s' not found\n", file_part);
+    iput(dp);
+    return -1;
+  }
+
+  ilock(ip);
+  if (ip->type == FS_DIR) {
+    if (!is_dir_empty(ip)) {
+      kprintf("fs_rm: directory '%s' is not empty\n", file_part);
+      iput(ip);
+      iput(dp);
+      return -1;
+    }
+  }
+
+  struct dirent de;
+  memset(&de, 0, sizeof(de));
+  if (writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    kprintf("fs_rm: failed to clear directory entry\n");
+    iput(ip);
+    iput(dp);
+    return -1;
+  }
+
+  itrunc(ip, 0);
+
+  ip->type = FS_UNUSED;
+  iupdate(ip);
+
+  iput(ip);
+  iput(dp);
+  return 0;
+}
