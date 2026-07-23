@@ -1,8 +1,8 @@
+/bin/*
 /build/*
-*.map
-*.tar
-*.o
-*.elf
 *.bin
+*.elf
+*.img
 *.log
-*.pcap
+*.map
+*.o

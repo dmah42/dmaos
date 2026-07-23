@@ -4,157 +4,404 @@
 #include "stdlib.h"
 #include "virtio.h"
 
-struct tar_header {
-  char name[MAX_FILENAME];
-  char mode[8];
-  char uid[8];
-  char gid[8];
-  char size[12];
-  char mtime[12];
-  char checksum[8];
-  char type;
-  char linkname[100];
-  char magic[6];
-  char version[2];
-  char uname[32];
-  char gname[32];
-  char devmajor[8];
-  char devminor[8];
-  char prefix[155];
-  char padding[12];
-  char data[]; // Array pointing to the data area following the header
-               // (flexible array member)
-} __attribute__((packed));
+static struct superblock sb;
+static struct inode inode_table[NINODE];
 
-struct file {
-  bool in_use;
-  char name[MAX_FILENAME];
-  const char *data;
-  size_t size;
-};
-
-#define FILES_MAX 10
-#define DISK_MAX_SECTORS 1024
-#define DISK_MAX_SIZE (DISK_MAX_SECTORS * SECTOR_SIZE)
-
-struct file files[FILES_MAX];
-uint8_t disk[DISK_MAX_SIZE];
-
-int oct2int(char *oct, int len) {
-  int dec = 0;
-  for (int i = 0; i < len; i++) {
-    if (oct[i] < '0' || oct[i] > '7') {
-      break;
-    }
-
-    dec = dec * 8 + (oct[i] - '0');
-  }
-  return dec;
+/*
+ * Reads a 1024-byte block (2 sectors) from the block device.
+ */
+static void read_block(uint32_t block, void *buf) {
+  read_write_device(buf, block * SECTORS_PER_BLOCK, false);
+  read_write_device((int8_t *)buf + SECTOR_SIZE, block * SECTORS_PER_BLOCK + 1,
+                    false);
 }
 
-void fs_init() {
-  uint32_t sectors = virtio_blk_sectors();
-  if (sectors > DISK_MAX_SECTORS) {
-    sectors = DISK_MAX_SECTORS;
+/*
+ * In-memory inode cache retrieval.
+ */
+static struct inode *iget(uint32_t inum) {
+  struct inode *empty = NULL;
+  for (int i = 0; i < NINODE; i++) {
+    if (inode_table[i].ref > 0 && inode_table[i].inum == inum) {
+      ++inode_table[i].ref;
+      return &inode_table[i];
+    }
+    if (empty == NULL && inode_table[i].ref == 0) {
+      empty = &inode_table[i];
+    }
   }
 
-  for (uint32_t sector = 0; sector < sectors; sector++) {
-    read_write_device(&disk[sector * SECTOR_SIZE], sector, false);
+  if (empty == NULL) {
+    PANIC("iget: failed to allocate in-memory inode cache slot for inum %d",
+          inum);
   }
 
-  uint32_t off = 0;
-  for (int i = 0; i < FILES_MAX; ++i) {
-    if (off + sizeof(struct tar_header) > DISK_MAX_SIZE) {
-      break;
-    }
-    struct tar_header *header = (struct tar_header *)&disk[off];
-    if (header->name[0] == '\0') {
-      break;
-    }
+  empty->inum = inum;
+  empty->ref = 1;
+  empty->valid = 0;
+  return empty;
+}
 
-    if (strcmp(header->magic, "ustar") != 0) {
-      PANIC("invalid tar header: magic=\"%s\"", header->magic);
-    }
+/*
+ * Releases a reference to an inode.
+ */
+void iput(struct inode *ip) {
+  if (ip == NULL)
+    return;
+  if (ip->ref <= 0) {
+    PANIC("iput: trying to release inode %d with invalid ref count %d",
+          ip->inum, ip->ref);
+  }
+  --ip->ref;
+}
 
-    int file_size = oct2int(header->size, sizeof(header->size));
-    struct file *file = &files[i];
-    file->in_use = true;
-    memcpy(file->name, header->name, MAX_FILENAME - 1);
-    file->name[MAX_FILENAME - 1] = '\0';
-    file->data = header->data;
-    file->size = file_size;
+/*
+ * Locks/reads the inode content from the block device if not yet cached.
+ */
+static void ilock(struct inode *ip) {
+  if (ip == NULL) {
+    PANIC("ilock: NULL inode pointer");
+  }
+  if (ip->ref < 1) {
+    PANIC("ilock: inode %d has invalid ref count %d", ip->inum, ip->ref);
+  }
 
-    off += align_up(sizeof(struct tar_header) + file_size, SECTOR_SIZE);
+  if (ip->valid == 0) {
+    uint32_t inodes_per_block = BSIZE / sizeof(struct dinode);
+    uint32_t block = sb.inodestart + ip->inum / inodes_per_block;
+    uint32_t offset = (ip->inum % inodes_per_block) * sizeof(struct dinode);
+
+    uint8_t buf[BSIZE];
+    read_block(block, buf);
+    struct dinode *dip = (struct dinode *)(buf + offset);
+
+    ip->type = dip->type;
+    ip->major = dip->major;
+    ip->minor = dip->minor;
+    ip->nlink = dip->nlink;
+    ip->size = dip->size;
+    memcpy(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    ip->valid = 1;
   }
 }
 
 /*
- * Reads up to FS_CHUNK_SIZE bytes of file contents from the specified offset
- * into a user-provided buffer. Returns the number of bytes actually read on
- * success (0 indicates EOF). Returns -1 if the file is not found.
+ * Maps a file block number to a physical block address on disk,
+ * supporting direct blocks and single indirection.
+ */
+static uint32_t bmap(struct inode *ip, uint32_t bn) {
+  if (ip == NULL) {
+    PANIC("bmap: invalid ip\n");
+  }
+  if (bn < NDIRECT) {
+    uint32_t addr = ip->addrs[bn];
+    if (addr == 0) {
+      PANIC("bmap: inode %d direct block %d is 0", ip->inum, bn);
+    }
+    return addr;
+  }
+
+  bn -= NDIRECT;
+  if (bn < NINDIRECT) {
+    uint32_t indirect_block = ip->addrs[NDIRECT];
+    if (indirect_block == 0) {
+      PANIC("bmap: inode %d single-indirect block is 0", ip->inum);
+    }
+    uint32_t indirect[BSIZE / sizeof(uint32_t)];
+    read_block(indirect_block, indirect);
+    uint32_t addr = indirect[bn];
+    if (addr == 0) {
+      PANIC("bmap: inode %d indirect block index %d is 0", ip->inum, bn);
+    }
+    return addr;
+  }
+
+  PANIC("bmap: block index %d exceeds max file size (NDIRECT+NINDIRECT)",
+        bn + NDIRECT);
+}
+
+/*
+ * Reads file contents from the specified inode.
+ */
+int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
+  if (ip == NULL) {
+    kprintf("readi: NULL inode pointer\n");
+    return -1;
+  }
+  if (ip->type == FS_UNUSED) {
+    kprintf("readi: inode %d is unused\n", ip->inum);
+    return -1;
+  }
+  ilock(ip);
+
+  if (offset > ip->size || offset + n < offset) {
+    kprintf(
+        "readi: invalid read parameters: offset %d, size %d, file size %d\n",
+        offset, n, ip->size);
+    return -1;
+  }
+  if (offset + n > ip->size) {
+    n = ip->size - offset;
+  }
+
+  uint32_t tot, m;
+  uint8_t buf[BSIZE];
+  for (tot = 0; tot < n; tot += m, offset += m, dst += m) {
+    uint32_t bn = offset / BSIZE;
+    uint32_t block = bmap(ip, bn);
+    read_block(block, buf);
+
+    uint32_t block_offset = offset % BSIZE;
+    m = BSIZE - block_offset;
+    if (m > n - tot) {
+      m = n - tot;
+    }
+    memcpy(dst, buf + block_offset, m);
+  }
+  return n;
+}
+
+/*
+ * Scans a directory inode for a entry matching name.
+ */
+static struct inode *dirlookup(struct inode *dp, const char *name,
+                               uint32_t *poff) {
+  if (dp->type != FS_DIR) {
+    kprintf("dirlookup: inode %d is not a directory (type %d)\n", dp->inum,
+            dp->type);
+    return NULL;
+  }
+  ilock(dp);
+
+  struct dirent de;
+  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+      kprintf("dirlookup: readi failed reading directory entries of inum %d\n",
+              dp->inum);
+      return NULL;
+    }
+    if (de.inum == 0) {
+      continue;
+    }
+    if (strncmp(name, de.name, DIRSIZ) == 0) {
+      if (poff) {
+        *poff = off;
+      }
+      return iget(de.inum);
+    }
+  }
+  return NULL;
+}
+
+/*
+ * Helper to skip path delimiters.
+ */
+static const char *skipto(const char *path, char *name) {
+  while (*path == '/') {
+    ++path;
+  }
+  if (*path == '\0') {
+    return NULL;
+  }
+  const char *s = path;
+  while (*path != '/' && *path != '\0') {
+    ++path;
+  }
+  int len = path - s;
+  if (len >= DIRSIZ) {
+    len = DIRSIZ - 1;
+  }
+  memcpy(name, s, len);
+  name[len] = '\0';
+  while (*path == '/') {
+    ++path;
+  }
+  return path;
+}
+
+/*
+ * Resolves a hierarchical path name to an inode.
+ */
+static struct inode *namex(const char *path, bool parent, char *name) {
+  struct inode *ip;
+  if (*path == '/') {
+    ip = iget(1); // Root directory is inode 1
+  } else {
+    // TODO: Current directory is not supported; resolve relative paths from
+    // root.
+    ip = iget(1);
+  }
+
+  while ((path = skipto(path, name)) != NULL) {
+    ilock(ip);
+    if (ip->type != FS_DIR) {
+      kprintf(
+          "namex: path component '%s' is not a directory (inum %d, type %d)\n",
+          name, ip->inum, ip->type);
+      iput(ip);
+      return NULL;
+    }
+    if (parent && *path == '\0') {
+      return ip;
+    }
+    struct inode *next = dirlookup(ip, name, NULL);
+    if (next == NULL) {
+      kprintf("namex: component '%s' not found in directory inum %d\n", name,
+              ip->inum);
+      iput(ip);
+      return NULL;
+    }
+    iput(ip);
+    ip = next;
+  }
+  if (parent) {
+    iput(ip);
+    return NULL;
+  }
+  return ip;
+}
+
+/*
+ * Resolves path to an inode.
+ */
+struct inode *namei(const char *path) {
+  char name[DIRSIZ];
+  return namex(path, false, name);
+}
+
+/*
+ * Initializes the filesystem by reading the superblock block.
+ */
+void fs_init() {
+  memset(inode_table, 0, sizeof(inode_table));
+  uint8_t buf[BSIZE];
+  read_block(1, buf);
+  memcpy(&sb, buf, sizeof(sb));
+  if (sb.magic != XV6_FS_MAGIC) {
+    PANIC("fs_init: magic number mismatch. Expected %x, got %x", XV6_FS_MAGIC,
+          sb.magic);
+  }
+}
+
+/*
+ * Reads content of named file into user buffer (handles read offset).
  */
 int fs_read_file(const char *name, char *buf, int offset) {
-  for (int i = 0; i < FILES_MAX; i++) {
-    if (files[i].in_use && strcmp(files[i].name, name) == 0) {
-      if ((size_t)offset >= files[i].size) {
-        return 0; // EOF
-      }
-      size_t read_len = files[i].size - offset;
-      if (read_len > FS_CHUNK_SIZE) {
-        read_len = FS_CHUNK_SIZE;
-      }
-      if (buf != NULL) {
-        memcpy(buf, files[i].data + offset, read_len);
-      }
-      return read_len;
-    }
+  struct inode *ip = namei(name);
+  if (ip == NULL) {
+    return -1;
   }
-  return -1;
+  int n = readi(ip, buf, offset, FS_CHUNK_SIZE);
+  iput(ip);
+  return n;
 }
 
 /*
- * Copies the name of the file at the specified index into a user-provided
- * buffer. Returns 0 on success. Returns -1 if the index is out of bounds or the
- * file slot is unused.
+ * Populates file name at index from root directory (ls compatibility).
  */
 int fs_get_file_name(int index, char *buf, int buf_len) {
   if (buf_len <= 0) {
     return -1;
   }
-  if (index < 0 || index >= FILES_MAX || !files[index].in_use) {
+  struct inode *dp = iget(1);
+  if (dp == NULL) {
     return -1;
   }
-  int i;
-  for (i = 0; i < buf_len - 1 && files[index].name[i] != '\0'; i++) {
-    buf[i] = files[index].name[i];
+  ilock(dp);
+
+  struct dirent de;
+  int current_index = 0;
+  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+      iput(dp);
+      return -1;
+    }
+    if (de.inum == 0) {
+      continue;
+    }
+    if (strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0) {
+      continue;
+    }
+
+    if (current_index == index) {
+      int len = strlen(de.name);
+      if (len >= buf_len) {
+        len = buf_len - 1;
+      }
+      memcpy(buf, de.name, len);
+      buf[len] = '\0';
+      iput(dp);
+      return 0;
+    }
+    ++current_index;
   }
-  buf[i] = '\0';
-  return 0;
+
+  iput(dp);
+  return -1;
 }
 
 /*
- * Returns the size of the file at the specified index.
- * Returns -1 if the index is out of bounds or the file slot is unused.
+ * Gets size of file at index from root directory (ls compatibility).
  */
 int fs_get_file_size(int index) {
-  if (index < 0 || index >= FILES_MAX || !files[index].in_use) {
+  struct inode *dp = iget(1);
+  if (dp == NULL) {
     return -1;
   }
-  return files[index].size;
+  ilock(dp);
+
+  struct dirent de;
+  int current_index = 0;
+  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+      iput(dp);
+      return -1;
+    }
+    if (de.inum == 0) {
+      continue;
+    }
+    if (strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0) {
+      continue;
+    }
+
+    if (current_index == index) {
+      struct inode *ip = iget(de.inum);
+      ilock(ip);
+      int size = ip->size;
+      iput(ip);
+      iput(dp);
+      return size;
+    }
+    ++current_index;
+  }
+
+  iput(dp);
+  return -1;
 }
 
 /*
- * Returns a direct pointer to a file's read-only memory area and its size.
- * This is a kernel-internal API to allow process.c to load binary images.
+ * Returns the size of the inode, ensuring it is locked/read first.
  */
-void *fs_get_file_data(const char *name, size_t *size) {
-  for (int i = 0; i < FILES_MAX; i++) {
-    if (files[i].in_use && strcmp(files[i].name, name) == 0) {
-      if (size != NULL) {
-        *size = files[i].size;
-      }
-      return (void *)files[i].data;
-    }
+uint32_t fs_get_inode_size(struct inode *ip) {
+  if (ip == NULL) {
+    PANIC("Attempt to get size of NULL inode\n");
+    return 0;
   }
-  return NULL;
+  ilock(ip);
+  return ip->size;
+}
+
+/*
+ * Populates a stat structure for a path.
+ */
+int fs_stat(const char *path, struct stat *st) {
+  struct inode *ip = namei(path);
+  if (ip == NULL) {
+    return -1;
+  }
+  ilock(ip);
+  st->type = ip->type;
+  st->size = ip->size;
+  iput(ip);
+  return 0;
 }

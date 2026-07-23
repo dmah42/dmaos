@@ -9,6 +9,10 @@
 
 #define SCAUSE_ECALL (8)
 
+#define SSTATUS_SPIE (1 << 5)
+#define SSTATUS_SPP (1 << 8)
+#define SSTATUS_SUM (1 << 18)
+
 extern char __bss[], __bss_end[], __stack_top[];
 extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
@@ -216,8 +220,21 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_GET_FILE_SIZE:
     f->a0 = fs_get_file_size(f->a0);
     break;
+  case SYSCALL_STAT: {
+    const char *path = (const char *)f->a0;
+    struct stat *st = (struct stat *)f->a1;
+    if (!validate_user_string(path) ||
+        !validate_user_write_buffer(st, sizeof(struct stat))) {
+      kprintf("stat: invalid pointer(s)\n");
+      f->a0 = -1;
+    } else {
+      f->a0 = fs_stat(path, st);
+    }
+    break;
+  }
   case SYSCALL_SPAWN: {
     const char *cmdline = (const char *)f->a0;
+    kprintf("spawn: '%s'\n", cmdline);
     if (!validate_user_string(cmdline)) {
       kprintf("spawn: invalid cmdline pointer\n");
       f->a0 = -1;
@@ -350,16 +367,17 @@ void kmain(void) {
 
   kprintf("dmaOS kernel boot started\n");
 
-  kprintf("Initializing VirtIO block device\t");
+  kprintf("Initializing VirtIO block device\n");
   virtio_blk_init();
-  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+  kprintf(RALIGN GREEN "[VirtIO initialized]\n" DEFAULT);
 
-  kprintf("Initializing tar file system\t");
+  kprintf("Initializing file system\n");
   fs_init();
-  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+  kprintf(RALIGN GREEN "[File system initialized]\n" DEFAULT);
 
   kprintf("Initializing process scheduler\n");
   process_init();
+  kprintf(RALIGN GREEN "[Process scheduler initialized]\n" DEFAULT);
 
   kprintf("Spawning shell process\n");
   create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
@@ -383,24 +401,38 @@ __attribute__((section(".text.boot"))) __attribute__((naked)) void boot(void) {
 }
 
 void handle_trap(struct trap_frame *f) {
-  (void)f;
   uint32_t scause = READ_CSR(scause);
   uint32_t stval = READ_CSR(stval);
   uint32_t user_pc = READ_CSR(sepc);
+  uint32_t sstatus = READ_CSR(sstatus);
 
   if (scause == SCAUSE_ECALL) {
     handle_syscall(f);
     user_pc += 4;
+  } else if ((sstatus & SSTATUS_SPP) == 0) {
+    struct Process *proc = get_current_process();
+    kprintf(RED
+            "Process %d (%s) crashed: scause %x, stval %x, sepc %x\n" DEFAULT,
+            proc->pid, proc->name, scause, stval, user_pc);
+    exit_current_process();
+    yield();
   } else {
+    kprintf("TRAP REGISTERS:\n");
+    kprintf("  ra: %x, sp: %x, gp: %x, tp: %x\n", f->ra, f->sp, f->gp, f->tp);
+    kprintf("  t0: %x, t1: %x, t2: %x, t3: %x\n", f->t0, f->t1, f->t2, f->t3);
+    kprintf("  t4: %x, t5: %x, t6: %x\n", f->t4, f->t5, f->t6);
+    kprintf("  a0: %x, a1: %x, a2: %x, a3: %x\n", f->a0, f->a1, f->a2, f->a3);
+    kprintf("  a4: %x, a5: %x, a6: %x, a7: %x\n", f->a4, f->a5, f->a6, f->a7);
+    kprintf("  s0: %x, s1: %x, s2: %x, s3: %x\n", f->s0, f->s1, f->s2, f->s3);
+    kprintf("  s4: %x, s5: %x, s6: %x, s7: %x\n", f->s4, f->s5, f->s6, f->s7);
+    kprintf("  s8: %x, s9: %x, s10: %x, s11: %x\n", f->s8, f->s9, f->s10,
+            f->s11);
     PANIC("unexpected trap:\n  scause %x\n  stval %x\n  sepc %x\n", scause,
           stval, user_pc);
   }
 
   WRITE_CSR(sepc, user_pc);
 }
-
-#define SSTATUS_SPIE (1 << 5)
-#define SSTATUS_SUM (1 << 18)
 
 __attribute__((naked)) void user_entry(void) {
   __asm__ __volatile__("mv sp, s0\n"

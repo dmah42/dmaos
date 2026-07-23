@@ -103,6 +103,8 @@ void virtio_reg_fetch_and_or32(unsigned offset, uint32_t value) {
 }
 
 struct virtio_virtq *virtq_init(uint32_t index) {
+  kprintf("virtq_init: sizeof(virtio_virtq) = %d\n",
+          (int)sizeof(struct virtio_virtq));
   // Allocate a region for the virtqueue.
   paddr_t virtq_paddr =
       alloc_pages(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
@@ -138,8 +140,8 @@ bool virtq_is_busy(struct virtio_virtq *vq) {
 
 void read_write_device(void *buf, uint32_t sector, bool is_write) {
   if (sector >= blk_sectors) {
-    printf("virtio: tried to read/write sector=%d, but capacity is %d\n",
-           sector, blk_sectors);
+    PANIC("virtio: tried to read/write sector=%d, but capacity is %d\n", sector,
+          blk_sectors);
     return;
   }
 
@@ -174,8 +176,8 @@ void read_write_device(void *buf, uint32_t sector, bool is_write) {
 
   // virtio-blk: If a non-zero value is returned, it's an error.
   if (blk_req->status != 0) {
-    printf("virtio: warn: failed to read/write sector=%d status=%d\n", sector,
-           blk_req->status);
+    PANIC("virtio: warn: failed to read/write sector=%d status=%d\n", sector,
+          blk_req->status);
     return;
   }
 

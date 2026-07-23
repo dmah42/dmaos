@@ -11,7 +11,7 @@ struct Process {
   enum ProcState state;
   vaddr_t sp;
   uint32_t *page_table;
-  // NOTE: context could be stored in a thread, or outside of the process...
+  char name[16];
   uint8_t stack[8192];
 };
 
@@ -19,6 +19,7 @@ void process_init();
 
 struct Process *create_process(const void *image, size_t image_size, int argc,
                                char **argv);
+struct Process *get_current_process(void);
 void exit_current_process();
 void yield();
 int spawn_process(const char *filename);

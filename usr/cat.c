@@ -18,6 +18,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  struct stat st;
+  if (stat(filename, &st) < 0) {
+    printf("cat: %s: no such file or directory\n", filename);
+    return 1;
+  }
+  if (st.type == FS_DIR) {
+    printf("cat: %s: Is a directory\n", filename);
+    return 1;
+  }
+
   char buf[FS_CHUNK_SIZE + 1];
   int offset = 0;
   int read_bytes;
@@ -25,9 +35,6 @@ int main(int argc, char **argv) {
     buf[read_bytes] = '\0';
     printf("%s", buf);
     offset += read_bytes;
-  }
-  if (read_bytes < 0) {
-    printf("file not found: %s\n", filename);
   }
   return 0;
 }

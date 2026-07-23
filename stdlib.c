@@ -50,6 +50,32 @@ size_t strlen(const char *s) {
   return len;
 }
 
+char *strncpy(char *dst, const char *src, size_t n) {
+  char *orig = dst;
+  while (n > 0 && *src) {
+    *dst++ = *src++;
+    n--;
+  }
+  while (n > 0) {
+    *dst++ = '\0';
+    n--;
+  }
+  return orig;
+}
+
+char *strncat(char *dst, const char *src, size_t n) {
+  char *orig = dst;
+  while (*dst) {
+    dst++;
+  }
+  while (n > 0 && *src) {
+    *dst++ = *src++;
+    n--;
+  }
+  *dst = '\0';
+  return orig;
+}
+
 void vprintf(void (*putc)(char), const char *fmt, va_list vargs) {
   while (*fmt) {
     if (*fmt == '%') {

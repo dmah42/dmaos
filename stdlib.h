@@ -31,10 +31,11 @@ typedef uint32_t vaddr_t;
 #define _unused __attribute__((unused))
 
 // ANSI colour codes
+#define DEFAULT "\033[0m"
+#define BOLD "\033[1m"
+#define RED "\033[31m"
 #define GREEN "\033[32m"
 #define YELLOW "\033[33m"
-#define BOLD "\033[1m"
-#define DEFAULT "\033[0m"
 #define RALIGN "\033[999C\033[6D"
 
 #define va_list __builtin_va_list
@@ -47,6 +48,8 @@ void *memcpy(void *dst, const void *src, size_t n);
 int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, size_t n);
 size_t strlen(const char *s);
+char *strncpy(char *dst, const char *src, size_t n);
+char *strncat(char *dst, const char *src, size_t n);
 
 void printf(const char *fmt, ...);
 void vprintf(void (*putc)(char), const char *fmt, va_list vargs);

@@ -17,6 +17,8 @@ void process_init() {
   current_proc = idle_proc;
 }
 
+// TODO: clean this API up. image is only set for the shell which suggests
+// maybe we can reuse it for disk.img?
 struct Process *create_process(const void *image, size_t image_size, int argc,
                                char **argv) {
   // Find an unused PCB
@@ -48,25 +50,45 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
 
   // Map user pages.
+  struct inode *ip = NULL;
+  size_t size = image_size;
+  if (image == NULL && argc > 0 && argv != NULL) {
+    ip = namei(argv[0]);
+    if (ip == NULL) {
+      free_pages((paddr_t)page_table, 1);
+      return NULL;
+    }
+    size = fs_get_inode_size(ip);
+  }
+
   paddr_t last_page = 0;
-  for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+  for (uint32_t off = 0; off < size; off += PAGE_SIZE) {
     paddr_t page = alloc_pages(1);
 
-    size_t remain = image_size - off;
+    size_t remain = size - off;
     size_t copy_size = PAGE_SIZE <= remain ? PAGE_SIZE : remain;
 
-    memcpy((void *)page, image + off, copy_size);
+    if (image != NULL) {
+      memcpy((void *)page, image + off, copy_size);
+    } else if (ip != NULL) {
+      readi(ip, (char *)page, off, copy_size);
+    }
+
     map_page(page_table, USER_BASE + off, page,
              PAGE_U | PAGE_R | PAGE_W | PAGE_X);
-    if (off + PAGE_SIZE >= image_size) {
+    if (off + PAGE_SIZE >= size) {
       last_page = page;
     }
   }
 
+  if (ip != NULL) {
+    iput(ip);
+  }
+
   // Copy arguments to the user stack
-  uint32_t user_sp = USER_BASE + image_size;
+  uint32_t user_sp = USER_BASE + size;
   if (argc > 0 && last_page != 0) {
-    uint32_t stack_top_offset = image_size % PAGE_SIZE;
+    uint32_t stack_top_offset = size % PAGE_SIZE;
     if (stack_top_offset == 0) {
       stack_top_offset = PAGE_SIZE;
     }
@@ -82,7 +104,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
       memcpy(kernel_sp, argv[j], len);
 
       uint32_t offset_from_top = kernel_stack_top - kernel_sp;
-      user_argv_va[j] = (USER_BASE + image_size) - offset_from_top;
+      user_argv_va[j] = (USER_BASE + size) - offset_from_top;
     }
 
     // Align stack pointer to 16-byte boundary
@@ -97,7 +119,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     argv_array[argc] = 0; // NULL terminator
 
     uint32_t offset_from_top = kernel_stack_top - kernel_sp;
-    user_sp = (USER_BASE + image_size) - offset_from_top;
+    user_sp = (USER_BASE + size) - offset_from_top;
   }
 
   // Initialize process register state
@@ -121,9 +143,13 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   proc->page_table = page_table;
   proc->sp = (uint32_t)sp;
   if (argv != NULL && argc > 0) {
+    strncpy(proc->name, argv[0], sizeof(proc->name) - 1);
+    proc->name[sizeof(proc->name) - 1] = '\0';
     kprintf(YELLOW "Process created: PID=%d, name=%s, image_size=%d\n" DEFAULT,
-            proc->pid, argv[0], image_size);
+            proc->pid, argv[0], size);
   } else {
+    strncpy(proc->name, "idle/init", sizeof(proc->name) - 1);
+    proc->name[sizeof(proc->name) - 1] = '\0';
     kprintf(YELLOW "Process created: PID=%d, idle/init\n" DEFAULT, proc->pid);
   }
   return proc;
@@ -135,7 +161,8 @@ void exit_current_process() {
 }
 
 void free_process_pages(struct Process *proc) {
-  if (!proc->page_table) return;
+  if (!proc->page_table)
+    return;
 
   uint32_t *t1 = proc->page_table;
   for (uint32_t vpn1 = 0; vpn1 < 1024; vpn1++) {
@@ -149,7 +176,8 @@ void free_process_pages(struct Process *proc) {
           uint32_t entry0 = t0[vpn0];
           if (entry0 & PAGE_V) {
             paddr_t page_paddr = (entry0 >> 10) * PAGE_SIZE;
-            if (page_paddr >= (paddr_t)__free_ram && page_paddr < (paddr_t)__free_ram_end) {
+            if (page_paddr >= (paddr_t)__free_ram &&
+                page_paddr < (paddr_t)__free_ram_end) {
               free_pages(page_paddr, 1);
             }
           }
@@ -240,10 +268,11 @@ void yield() {
 }
 
 /*
- * Spawns a new process from a binary file in the tarball.
+ * Spawns a new process from a binary file in the filesystem.
  * Returns the PID of the new process, or -1 if the file does not exist.
  */
 int spawn_process(const char *cmdline) {
+  kprintf("spawn_process '%s'\n", cmdline);
   int argc = 0;
   char *argv[16];
   char cmd[128];
@@ -277,13 +306,10 @@ int spawn_process(const char *cmdline) {
     return -1;
   }
 
-  size_t size;
-  const void *data = fs_get_file_data(argv[0], &size);
-  if (data == NULL) {
-    printf("file '%s' not found\n", argv[0]);
+  struct Process *proc = create_process(NULL, 0, argc, argv);
+  if (proc == NULL) {
     return -1;
   }
-  struct Process *proc = create_process(data, size, argc, argv);
   return proc->pid;
 }
 
@@ -322,3 +348,5 @@ int wait_process(int pid) {
     yield();
   }
 }
+
+struct Process *get_current_process(void) { return current_proc; }

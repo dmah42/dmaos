@@ -52,6 +52,10 @@ int get_file_size(int index) {
   return syscall(SYSCALL_GET_FILE_SIZE, index, 0, 0);
 }
 
+int stat(const char *name, struct stat *st) {
+  return syscall(SYSCALL_STAT, (uint32_t)name, (uint32_t)st, 0);
+}
+
 int spawn(const char *name) {
   return syscall(SYSCALL_SPAWN, (uint32_t)name, 0, 0);
 }
