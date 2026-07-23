@@ -38,6 +38,7 @@ struct dinode {
   uint32_t addrs[NDIRECT + 1]; // Data block addresses
 };
 
+#define MAX_DIR_ENTRIES 64
 #define DIRSIZ 30
 
 struct dirent {
@@ -64,13 +65,18 @@ struct inode {
 };
 
 void fs_init();
+
 int fs_read_file(const char *name, char *buf, int offset);
 int fs_get_file_name(int index, char *buf, int buf_len);
 int fs_get_file_size(int index);
 uint32_t fs_get_inode_size(struct inode *ip);
 int fs_stat(const char *path, struct stat *st);
+int fs_chdir(const char *path, struct inode **pip);
+void fs_normalize_path(const char *base, const char *rel, char *dst,
+                       size_t dst_len);
 
 // Inode and read helper declarations
+struct inode *iget(uint32_t inum);
 struct inode *namei(const char *path);
 void iput(struct inode *ip);
 int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n);

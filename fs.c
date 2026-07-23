@@ -1,4 +1,5 @@
 #include "fs.h"
+#include "process.h"
 
 #include "kernel.h"
 #include "stdlib.h"
@@ -19,7 +20,7 @@ static void read_block(uint32_t block, void *buf) {
 /*
  * In-memory inode cache retrieval.
  */
-static struct inode *iget(uint32_t inum) {
+struct inode *iget(uint32_t inum) {
   struct inode *empty = NULL;
   for (int i = 0; i < NINODE; i++) {
     if (inode_table[i].ref > 0 && inode_table[i].inum == inum) {
@@ -227,9 +228,12 @@ static struct inode *namex(const char *path, bool parent, char *name) {
   if (*path == '/') {
     ip = iget(1); // Root directory is inode 1
   } else {
-    // TODO: Current directory is not supported; resolve relative paths from
-    // root.
-    ip = iget(1);
+    struct Process *curr = get_current_process();
+    if (curr != NULL && curr->cwd != NULL) {
+      ip = iget(curr->cwd->inum);
+    } else {
+      ip = iget(1);
+    }
   }
 
   while ((path = skipto(path, name)) != NULL) {
@@ -404,4 +408,80 @@ int fs_stat(const char *path, struct stat *st) {
   st->size = ip->size;
   iput(ip);
   return 0;
+}
+
+int fs_chdir(const char *path, struct inode **pip) {
+  struct inode *ip = namei(path);
+  if (ip == NULL) {
+    return -1;
+  }
+  ilock(ip);
+  if (ip->type != FS_DIR) {
+    iput(ip);
+    return -1;
+  }
+  *pip = ip;
+  return 0;
+}
+
+void fs_normalize_path(const char *base, const char *rel, char *dst, size_t dst_len) {
+  char buf[256];
+  if (rel[0] == '/') {
+    strncpy(buf, rel, sizeof(buf) - 1);
+  } else {
+    strncpy(buf, base, sizeof(buf) - 1);
+    int len = strlen(buf);
+    if (len > 0 && buf[len - 1] != '/') {
+      strncat(buf, "/", sizeof(buf) - len - 1);
+    }
+    strncat(buf, rel, sizeof(buf) - strlen(buf) - 1);
+  }
+  buf[sizeof(buf) - 1] = '\0';
+
+  char *tokens[MAX_PATH_DEPTH];
+  int num_tokens = 0;
+  char *p = buf;
+  while (*p == '/') {
+    p++;
+  }
+
+  while (*p) {
+    char *next = p;
+    while (*next && *next != '/') {
+      next++;
+    }
+    char orig = *next;
+    *next = '\0';
+
+    if (strcmp(p, ".") == 0) {
+      // skip
+    } else if (strcmp(p, "..") == 0) {
+      if (num_tokens > 0) {
+        num_tokens--;
+      }
+    } else if (strlen(p) > 0) {
+      if (num_tokens < MAX_PATH_DEPTH) {
+        tokens[num_tokens++] = p;
+      }
+    }
+
+    if (orig) {
+      *next = orig;
+      p = next + 1;
+      while (*p == '/') {
+        p++;
+      }
+    } else {
+      break;
+    }
+  }
+
+  dst[0] = '/';
+  dst[1] = '\0';
+  for (int i = 0; i < num_tokens; i++) {
+    if (i > 0 || dst[1] != '\0') {
+      strncat(dst, "/", dst_len - strlen(dst) - 1);
+    }
+    strncat(dst, tokens[i], dst_len - strlen(dst) - 1);
+  }
 }

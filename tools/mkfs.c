@@ -44,20 +44,21 @@ void read_block(uint32_t block, void *buf) {
 struct mkfs_dir {
   uint32_t inum;
   char path[256]; // Relative directory path, e.g. "" for root, "cfg" for /cfg
-  struct dirent entries[64];
+  struct dirent entries[MAX_DIR_ENTRIES];
   int entry_count;
 };
 
-struct mkfs_dir dirs[64];
+struct mkfs_dir dirs[MAX_DIR_ENTRIES];
 int num_dirs = 0;
 
-uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes, uint32_t *freeinode) {
+uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
+                           uint32_t *freeinode) {
   if (strlen(dir_path) == 0) {
     return 1; // Root directory is always inum 1
   }
 
   // Check if it already exists
-  for (int i = 0; i < num_dirs; i++) {
+  for (int i = 0; i < num_dirs; ++i) {
     if (strcmp(dirs[i].path, dir_path) == 0) {
       return dirs[i].inum;
     }
@@ -72,7 +73,7 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes, uin
   // Does not exist, create it!
   uint32_t parent_inum = 1;
   uint32_t inum = (*freeinode)++;
-  if (inum >= 64) {
+  if (inum >= MAX_DIR_ENTRIES) {
     fprintf(stderr, "error: out of inodes\n");
     exit(1);
   }
@@ -103,7 +104,7 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes, uin
 
   // Add this directory entry to the parent directory (dirs[0])
   struct mkfs_dir *parent = &dirs[0];
-  if (parent->entry_count >= 64) {
+  if (parent->entry_count >= MAX_DIR_ENTRIES) {
     fprintf(stderr, "error: parent directory full\n");
     exit(1);
   }
@@ -126,7 +127,7 @@ int main(int argc, char *argv[]) {
   memset(free_bitmap, 0, sizeof(free_bitmap));
 
   // Mark metadata blocks as allocated in bitmap
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 7; ++i) {
     mark_allocated(i);
   }
 
@@ -134,7 +135,7 @@ int main(int argc, char *argv[]) {
   struct superblock sb;
   sb.magic = XV6_FS_MAGIC;
   sb.size = DISK_SIZE_BLOCKS;
-  sb.ninodes = 64;
+  sb.ninodes = MAX_DIR_ENTRIES;
   sb.inodestart = 2;
   sb.bmapstart = 6;
   sb.nblocks = DISK_SIZE_BLOCKS - 7;
@@ -144,7 +145,7 @@ int main(int argc, char *argv[]) {
   memcpy(sb_buf, &sb, sizeof(sb));
   write_block(1, sb_buf);
 
-  struct dinode file_inodes[64];
+  struct dinode file_inodes[MAX_DIR_ENTRIES];
   memset(file_inodes, 0, sizeof(file_inodes));
 
   // Set up Root Directory Inode (inum = 1)
@@ -155,7 +156,7 @@ int main(int argc, char *argv[]) {
   // Initialize root directory in dirs array
   dirs[0].inum = 1;
   strcpy(dirs[0].path, "");
-  
+
   struct dirent dot;
   dot.inum = 1;
   strcpy(dot.name, ".");
@@ -165,14 +166,14 @@ int main(int argc, char *argv[]) {
   dotdot.inum = 1;
   strcpy(dotdot.name, "..");
   dirs[0].entries[1] = dotdot;
-  
+
   dirs[0].entry_count = 2;
   num_dirs = 1;
 
   // Read and add input files
-  for (int i = 2; i < argc; i++) {
+  for (int i = 2; i < argc; ++i) {
     const char *filepath = argv[i];
-    
+
     // Strip "build/" prefix if present
     const char *rel_path = filepath;
     if (strncmp(filepath, "build/", 6) == 0) {
@@ -210,7 +211,7 @@ int main(int argc, char *argv[]) {
 
     // Allocate inode
     uint32_t inum = freeinode++;
-    if (inum >= 64) {
+    if (inum >= MAX_DIR_ENTRIES) {
       fprintf(stderr, "error: out of inodes\n");
       fclose(f);
       exit(1);
@@ -267,7 +268,7 @@ int main(int argc, char *argv[]) {
 
     // Find directory in dirs array
     int target_dir_idx = -1;
-    for (int d = 0; d < num_dirs; d++) {
+    for (int d = 0; d < num_dirs; ++d) {
       if (dirs[d].inum == dir_inum) {
         target_dir_idx = d;
         break;
@@ -278,7 +279,7 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
     struct mkfs_dir *td = &dirs[target_dir_idx];
-    if (td->entry_count >= 64) {
+    if (td->entry_count >= MAX_DIR_ENTRIES) {
       fprintf(stderr, "error: directory full\n");
       exit(1);
     }
@@ -292,29 +293,30 @@ int main(int argc, char *argv[]) {
   }
 
   // Write all directories' content to blocks
-  for (int d = 0; d < num_dirs; d++) {
+  for (int d = 0; d < num_dirs; ++d) {
     struct mkfs_dir *dir = &dirs[d];
     uint32_t dir_size_bytes = dir->entry_count * sizeof(struct dirent);
-    
+
     // Update its dinode size
     struct dinode *ip = &file_inodes[dir->inum];
     ip->size = dir_size_bytes;
-    
+
     uint32_t dir_blocks_needed = (dir_size_bytes + BSIZE - 1) / BSIZE;
     if (dir_blocks_needed > NDIRECT) {
       fprintf(stderr, "error: directory too large\n");
       exit(1);
     }
-    for (uint32_t block_idx = 0; block_idx < dir_blocks_needed; block_idx++) {
+    for (uint32_t block_idx = 0; block_idx < dir_blocks_needed; ++block_idx) {
       uint32_t db = balloc();
       uint8_t temp_buf[BSIZE];
       memset(temp_buf, 0, BSIZE);
-      
+
       uint32_t bytes_to_copy = dir_size_bytes - block_idx * BSIZE;
       if (bytes_to_copy > BSIZE) {
         bytes_to_copy = BSIZE;
       }
-      memcpy(temp_buf, ((uint8_t *)dir->entries) + block_idx * BSIZE, bytes_to_copy);
+      memcpy(temp_buf, ((uint8_t *)dir->entries) + block_idx * BSIZE,
+             bytes_to_copy);
       write_block(db, temp_buf);
       ip->addrs[block_idx] = db;
     }
@@ -325,9 +327,9 @@ int main(int argc, char *argv[]) {
   for (int block = 2; block <= 5; ++block) {
     memset(block_inodes, 0, sizeof(block_inodes));
     int start_inum = (block - 2) * 16;
-    for (int idx = 0; idx < 16; idx++) {
+    for (int idx = 0; idx < 16; ++idx) {
       int inum = start_inum + idx;
-      if (inum >= 1 && inum < 64) {
+      if (inum >= 1 && inum < MAX_DIR_ENTRIES) {
         block_inodes[idx] = file_inodes[inum];
       }
     }
@@ -347,10 +349,11 @@ int main(int argc, char *argv[]) {
   fclose(out);
 
   int total_entries = 0;
-  for (int d = 0; d < num_dirs; d++) {
+  for (int d = 0; d < num_dirs; ++d) {
     total_entries += dirs[d].entry_count;
   }
-  printf("Created filesystem image '%s' (%d KB total size, total dir entries: %d)\n",
+  printf("Created filesystem image '%s' (%d KB total size, total dir entries: "
+         "%d)\n",
          argv[1], DISK_SIZE_BLOCKS * BSIZE / 1024, total_entries);
   return 0;
 }

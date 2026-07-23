@@ -66,6 +66,14 @@ int kmesg(char *buf, int buf_len) {
   return syscall(SYSCALL_KMESG, (uint32_t)buf, buf_len, 0);
 }
 
+int chdir(const char *path) {
+  return syscall(SYSCALL_CHDIR, (uint32_t)path, 0, 0);
+}
+
+int getcwd(char *buf, int size) {
+  return syscall(SYSCALL_GETCWD, (uint32_t)buf, size, 0);
+}
+
 extern int main(int argc, char **argv);
 
 void umain(int argc, char **argv) {

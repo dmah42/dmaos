@@ -20,9 +20,11 @@ typedef uint32_t vaddr_t;
 #define false (0)
 #define NULL ((void *)0)
 #define FS_CHUNK_SIZE (512)
-// NOTE: this is limited by tar header restrictions and can be changed
-// once we are not using a tar disk as a filesystem
-#define MAX_FILENAME (100)
+
+#define MAX_FILENAME (128)
+#define MAX_PATH (256)
+#define MAX_CMD_NAME (64)
+#define MAX_PATH_DEPTH (32)
 
 #define align_up(value, align) __builtin_align_up(value, align)
 #define is_aligned(value, align) __builtin_is_aligned(value, align)
@@ -36,6 +38,9 @@ typedef uint32_t vaddr_t;
 #define RED "\033[31m"
 #define GREEN "\033[32m"
 #define YELLOW "\033[33m"
+#define BLUE "\033[34m"
+#define MAGENTA "\033[35m"
+#define CYAN "\033[36m"
 #define RALIGN "\033[999C\033[6D"
 
 #define va_list __builtin_va_list

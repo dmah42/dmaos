@@ -5,10 +5,10 @@
 
 const char *path_dirs[MAX_PATH_DIRS];
 int num_path_dirs = 0;
-char path_buf[256] = "/bin"; // Default fallback
+char path_buf[MAX_PATH] = "/bin"; // Default fallback
 
 void init_path(void) {
-  char config[256];
+  char config[MAX_PATH];
   memset(config, 0, sizeof(config));
   int n = read_file("/cfg/dmash.cfg", config, 0);
   if (n > 0) {
@@ -91,7 +91,7 @@ void init_path(void) {
 
 void run_command(const char *cmdline) {
   // Extract command name (first word of cmdline)
-  char cmd_name[64];
+  char cmd_name[MAX_CMD_NAME];
   int i = 0;
   while (cmdline[i] && cmdline[i] != ' ' && i < (int)sizeof(cmd_name) - 1) {
     cmd_name[i] = cmdline[i];
@@ -128,7 +128,7 @@ void run_command(const char *cmdline) {
     const char *dir = path_dirs[d];
 
     // Construct full path: dir + "/" + cmd_name
-    char full_path[256];
+    char full_path[MAX_PATH];
     strncpy(full_path, dir, sizeof(full_path) - 1);
     full_path[sizeof(full_path) - 1] = '\0';
 
@@ -141,7 +141,7 @@ void run_command(const char *cmdline) {
     struct stat st;
     if (stat(full_path, &st) >= 0 && st.type == FS_FILE) {
       // Reconstruct the cmdline: full_path + rest of cmdline arguments
-      char new_cmdline[256];
+      char new_cmdline[MAX_PATH];
       strncpy(new_cmdline, full_path, sizeof(new_cmdline) - 1);
       new_cmdline[sizeof(new_cmdline) - 1] = '\0';
 
@@ -168,6 +168,28 @@ void run_command(const char *cmdline) {
 
   if (!found) {
     printf("unknown command: %s\n", cmdline);
+  }
+}
+
+void kmesg_cmd(void) {
+  char buf[4097];
+  int len = kmesg(buf, sizeof(buf) - 1);
+  if (len >= 0) {
+    buf[len] = '\0';
+  }
+  printf("%s", buf);
+}
+
+void cd_cmd(const char *cmdline) {
+  const char *path = cmdline + 2;
+  while (*path == ' ') {
+    ++path;
+  }
+  if (*path == '\0') {
+    path = "/";
+  }
+  if (chdir(path) < 0) {
+    printf("cd: %s: no such directory\n", path);
   }
 }
 
@@ -234,8 +256,8 @@ bool detect_utf8(void) {
 const char *utf8_welcome = "\n" BOLD GREEN "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴅᴍᴀsʜ" DEFAULT "\n";
 const char *ascii_welcome = "\nwelcome to dmash\n";
 
-const char *utf8_prompt = BOLD "∅ " DEFAULT;
-const char *ascii_prompt = "# ";
+const char *utf8_prompt = BOLD " ∅" DEFAULT " ";
+const char *ascii_prompt = BOLD " #" DEFAULT " ";
 
 int main(void) {
   init_path();
@@ -248,11 +270,16 @@ int main(void) {
   }
 
   while (1) {
-    if (use_utf8) {
-      printf(utf8_prompt);
-    } else {
-      printf(ascii_prompt);
+    // Get CWD
+    char cwd[MAX_PATH];
+    if (getcwd(cwd, sizeof(cwd)) < 0) {
+      strncpy(cwd, "/", sizeof(cwd) - 1);
+      cwd[sizeof(cwd) - 1] = '\0';
     }
+
+    const char *prompt = use_utf8 ? utf8_prompt : ascii_prompt;
+    printf(BLUE "%s" DEFAULT "%s", cwd, prompt);
+
     char cmdline[128];
     int i = 0;
     while (1) {
@@ -266,13 +293,13 @@ int main(void) {
           putchar('\b');
           putchar(' ');
           putchar('\b');
-          i--;
+          --i;
         }
       } else {
         if (i < (int)sizeof(cmdline) - 1) {
           putchar(ch);
           cmdline[i] = ch;
-          i++;
+          ++i;
         } else {
           putchar('\a'); // Ring terminal bell when buffer is full
         }
@@ -282,12 +309,10 @@ int main(void) {
     if (strcmp(cmdline, "exit") == 0) {
       exit();
     } else if (strcmp(cmdline, "kmesg") == 0) {
-      char buf[4097];
-      int len = kmesg(buf, sizeof(buf) - 1);
-      if (len >= 0) {
-        buf[len] = '\0';
-      }
-      printf("%s", buf);
+      kmesg_cmd();
+    } else if (strncmp(cmdline, "cd", 2) == 0 &&
+               (cmdline[2] == ' ' || cmdline[2] == '\0')) {
+      cd_cmd(cmdline);
     } else {
       run_command(cmdline);
     }

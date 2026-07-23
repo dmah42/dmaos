@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fs.h"
 #include "stdlib.h"
 
 #define PROCS_MAX (8) // maximum number of processes
@@ -13,6 +14,8 @@ struct Process {
   uint32_t *page_table;
   char name[16];
   uint8_t stack[8192];
+  struct inode *cwd;
+  char cwd_path[MAX_PATH];
 };
 
 void process_init();

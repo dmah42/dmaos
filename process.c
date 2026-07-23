@@ -35,6 +35,16 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     PANIC("+++ REDO FROM START +++");
   }
 
+  if (current_proc != NULL && current_proc->cwd != NULL) {
+    proc->cwd = iget(current_proc->cwd->inum);
+    strncpy(proc->cwd_path, current_proc->cwd_path, sizeof(proc->cwd_path) - 1);
+    proc->cwd_path[sizeof(proc->cwd_path) - 1] = '\0';
+  } else {
+    proc->cwd = iget(1);
+    strncpy(proc->cwd_path, "/", sizeof(proc->cwd_path) - 1);
+    proc->cwd_path[sizeof(proc->cwd_path) - 1] = '\0';
+  }
+
   // Stack callee-saved registers. These register values will be restored in
   // the first context switch in switch_context.
   uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
@@ -161,6 +171,11 @@ void exit_current_process() {
 }
 
 void free_process_pages(struct Process *proc) {
+  if (proc->cwd != NULL) {
+    iput(proc->cwd);
+    proc->cwd = NULL;
+  }
+
   if (!proc->page_table)
     return;
 

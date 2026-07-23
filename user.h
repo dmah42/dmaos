@@ -16,3 +16,5 @@ int stat(const char *name, struct stat *st);
 int spawn(const char *name);
 int wait(int pid);
 int kmesg(char *buf, int buf_len);
+int chdir(const char *path);
+int getcwd(char *buf, int size);

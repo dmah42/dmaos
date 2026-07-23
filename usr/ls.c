@@ -12,39 +12,114 @@ int num_digits(int n) {
   return count;
 }
 
+void normalize_path(const char *base, const char *rel, char *dst, int dst_len) {
+  char buf[MAX_PATH];
+  if (rel[0] == '/') {
+    strncpy(buf, rel, sizeof(buf) - 1);
+  } else {
+    strncpy(buf, base, sizeof(buf) - 1);
+    int len = strlen(buf);
+    if (len > 0 && buf[len - 1] != '/') {
+      strncat(buf, "/", sizeof(buf) - len - 1);
+    }
+    strncat(buf, rel, sizeof(buf) - strlen(buf) - 1);
+  }
+  buf[sizeof(buf) - 1] = '\0';
+
+  char *tokens[MAX_PATH_DEPTH];
+  int num_tokens = 0;
+  char *p = buf;
+  while (*p == '/') {
+    p++;
+  }
+
+  while (*p) {
+    char *next = p;
+    while (*next && *next != '/') {
+      next++;
+    }
+    char orig = *next;
+    *next = '\0';
+
+    if (strcmp(p, ".") == 0) {
+      // skip
+    } else if (strcmp(p, "..") == 0) {
+      if (num_tokens > 0) {
+        num_tokens--;
+      }
+    } else if (strlen(p) > 0) {
+      if (num_tokens < MAX_PATH_DEPTH) {
+        tokens[num_tokens++] = p;
+      }
+    }
+
+    if (orig) {
+      *next = orig;
+      p = next + 1;
+      while (*p == '/') {
+        p++;
+      }
+    } else {
+      break;
+    }
+  }
+
+  dst[0] = '/';
+  dst[1] = '\0';
+  for (int i = 0; i < num_tokens; i++) {
+    if (i > 0 || dst[1] != '\0') {
+      strncat(dst, "/", dst_len - strlen(dst) - 1);
+    }
+    strncat(dst, tokens[i], dst_len - strlen(dst) - 1);
+  }
+}
+
 int main(int argc, char **argv) {
-  char path[128] = "";
-  if (argc == 2) {
-    strncpy(path, argv[1], sizeof(path) - 1);
-    path[sizeof(path) - 1] = '\0';
-  } else if (argc > 2) {
+  if (argc > 2) {
     printf("usage: ls [directory]\n");
     return 1;
   }
 
+  char cwd[MAX_PATH];
+  if (getcwd(cwd, sizeof(cwd)) < 0) {
+    strncpy(cwd, "/", sizeof(cwd) - 1);
+    cwd[sizeof(cwd) - 1] = '\0';
+  }
+
+  char target_path[MAX_PATH];
+  if (argc == 2) {
+    normalize_path(cwd, argv[1], target_path, sizeof(target_path));
+  } else {
+    strncpy(target_path, cwd, sizeof(target_path) - 1);
+    target_path[sizeof(target_path) - 1] = '\0';
+  }
+
   // Try to stat the path to make sure it exists
   struct stat st;
-  if (stat(path, &st) < 0) {
-    printf("ls: %s: no such file or directory\n", path);
+  if (stat(target_path, &st) < 0) {
+    printf("ls: %s: no such file or directory\n", argc == 2 ? argv[1] : ".");
     return 1;
   }
 
   if (st.type != FS_DIR) {
     // If it's a file, just list it
-    printf("  %s %db\n", path, st.size);
+    printf("  %s %db\n", target_path, st.size);
     return 0;
   }
 
-  // It's a directory! Read directory entries using read_file
+  // Print target directory directory header
+  printf("Directory of %s\n", target_path);
+
+  // Read directory entries using read_file
   char chunk[FS_CHUNK_SIZE];
   int offset = 0;
   int read_bytes;
 
-  struct dirent entries[64];
-  struct stat stats[64];
+  struct dirent entries[MAX_DIR_ENTRIES];
+  struct stat stats[MAX_DIR_ENTRIES];
   int entry_count = 0;
 
-  while ((read_bytes = read_file(path, chunk, offset)) > 0) {
+  while ((read_bytes = read_file(target_path, chunk, offset)) > 0) {
     for (int i = 0; i < read_bytes; i += sizeof(struct dirent)) {
       struct dirent *de = (struct dirent *)(chunk + i);
       if (de->inum == 0) {
@@ -57,29 +132,24 @@ int main(int argc, char **argv) {
       }
 
       // Construct full path to stat it
-      char full_path[256];
-      if (strlen(path) == 0) {
-        strncpy(full_path, de->name, sizeof(full_path) - 1);
-        full_path[sizeof(full_path) - 1] = '\0';
-      } else {
-        int path_len = strlen(path);
-        strncpy(full_path, path, sizeof(full_path) - 1);
-        full_path[sizeof(full_path) - 1] = '\0';
-        if (path[path_len - 1] != '/') {
-          strncat(full_path, "/", sizeof(full_path) - strlen(full_path) - 1);
-        }
-        strncat(full_path, de->name, sizeof(full_path) - strlen(full_path) - 1);
+      char full_path[MAX_PATH];
+      int path_len = strlen(target_path);
+      strncpy(full_path, target_path, sizeof(full_path) - 1);
+      full_path[sizeof(full_path) - 1] = '\0';
+      if (target_path[path_len - 1] != '/') {
+        strncat(full_path, "/", sizeof(full_path) - strlen(full_path) - 1);
       }
+      strncat(full_path, de->name, sizeof(full_path) - strlen(full_path) - 1);
 
       struct stat est;
       if (stat(full_path, &est) < 0) {
         continue;
       }
 
-      if (entry_count < 64) {
+      if (entry_count < MAX_DIR_ENTRIES) {
         entries[entry_count] = *de;
         stats[entry_count] = est;
-        entry_count++;
+        ++entry_count;
       }
     }
     offset += read_bytes;
@@ -104,13 +174,20 @@ int main(int argc, char **argv) {
   }
 
   for (int i = 0; i < entry_count; i++) {
-    char name_buf[64];
-    strncpy(name_buf, entries[i].name, sizeof(name_buf) - 1);
-    name_buf[sizeof(name_buf) - 1] = '\0';
+    int visible_len = strlen(entries[i].name);
     if (stats[i].type == FS_DIR) {
-      strncat(name_buf, "/", sizeof(name_buf) - strlen(name_buf) - 1);
+      ++visible_len;
+      printf("  " BOLD YELLOW "%s/" DEFAULT, entries[i].name);
+    } else {
+      printf("  %s", entries[i].name);
     }
-    printf("  %-*s %*db\n", (int)longest_name, name_buf, longest_size_len, stats[i].size);
+
+    int padding = longest_name - visible_len;
+    for (int p = 0; p < padding; ++p) {
+      putchar(' ');
+    }
+
+    printf(" %*db\n", longest_size_len, stats[i].size);
   }
 
   return 0;

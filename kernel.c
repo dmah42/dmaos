@@ -232,6 +232,46 @@ void handle_syscall(struct trap_frame *f) {
     }
     break;
   }
+  case SYSCALL_CHDIR: {
+    const char *path = (const char *)f->a0;
+    if (!validate_user_string(path)) {
+      f->a0 = -1;
+    } else {
+      struct inode *ip = NULL;
+      int ret = fs_chdir(path, &ip);
+      if (ret < 0) {
+        f->a0 = -1;
+      } else {
+        struct Process *proc = get_current_process();
+        char new_path[MAX_PATH];
+        fs_normalize_path(proc->cwd_path, path, new_path, sizeof(new_path));
+        strncpy(proc->cwd_path, new_path, sizeof(proc->cwd_path) - 1);
+        proc->cwd_path[sizeof(proc->cwd_path) - 1] = '\0';
+
+        iput(proc->cwd);
+        proc->cwd = ip; // Keep the reference returned by fs_chdir -> namei
+        f->a0 = 0;
+      }
+    }
+    break;
+  }
+  case SYSCALL_GETCWD: {
+    char *buf = (char *)f->a0;
+    int size = f->a1;
+    if (size <= 0 || !validate_user_write_buffer(buf, size)) {
+      f->a0 = -1;
+    } else {
+      struct Process *proc = get_current_process();
+      int len = strlen(proc->cwd_path);
+      if (len >= size) {
+        f->a0 = -1;
+      } else {
+        memcpy(buf, proc->cwd_path, len + 1);
+        f->a0 = 0;
+      }
+    }
+    break;
+  }
   case SYSCALL_SPAWN: {
     const char *cmdline = (const char *)f->a0;
     kprintf("spawn: '%s'\n", cmdline);

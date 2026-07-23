@@ -1,6 +1,6 @@
 cc := $(shell brew --prefix llvm)/bin/clang
 objcopy := $(shell brew --prefix llvm)/bin/llvm-objcopy
-cflags := -std=c11 -O2 -g3 -Wall -Wextra \
+cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
           --target=riscv32-unknown-elf -nostdlib \
 					-fno-stack-protector -ffreestanding -fno-builtin -fuse-ld=lld
 kflags := -Wl,-Tkernel.ld -Wl,-Map=kernel.map
