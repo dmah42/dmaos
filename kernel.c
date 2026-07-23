@@ -379,6 +379,8 @@ void kmain(void) {
   process_init();
   kprintf(RALIGN GREEN "[Process scheduler initialized]\n" DEFAULT);
 
+  printf("dmaos boot complete\n");
+
   kprintf("Spawning shell process\n");
   create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
                  NULL);
