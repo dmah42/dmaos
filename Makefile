@@ -14,7 +14,7 @@ qflags := -machine virt -bios default -nographic \
 
 ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c
 kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h
-ssources := shell.c stdlib.c user.c
+ssources := sh/shell.c stdlib.c user.c
 uheaders := user.h fs.h stdlib.h
 utxts    := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
@@ -25,24 +25,24 @@ uprogs   := cat hello ls snake
 
 all: kernel.elf disk.img
 
-kernel.elf: $(ksources) $(kheaders) kernel.ld shell.bin.o
-	$(cc) $(cflags) $(kflags) -o $@ $(ksources) shell.bin.o
+kernel.elf: $(ksources) $(kheaders) kernel.ld sh/shell.bin.o
+	$(cc) $(cflags) $(kflags) -o $@ $(ksources) sh/shell.bin.o
 
 run: kernel.elf disk.img
 	$(qemu) $(qflags) -kernel kernel.elf
 
 clean:
-	@rm -f kernel.map kernel.elf shell.map shell.elf shell.bin.o shell.bin disk.img
+	@rm -f kernel.map kernel.elf sh/shell.map sh/shell.elf sh/shell.bin.o sh/shell.bin disk.img
 	@rm -rf bin build
 
-shell.elf: $(ssources) $(uheaders) user.ld
-	$(cc) $(cflags) $(uflags) -Wl,-Map=shell.map -o $@ $(ssources)
+sh/shell.elf: $(ssources) $(uheaders) user.ld
+	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=sh/shell.map -o $@ $(ssources)
 
-shell.bin: shell.elf
-	$(objcopy) --set-section-flags .bss=alloc,contents -O binary shell.elf shell.bin
+sh/shell.bin: sh/shell.elf
+	$(objcopy) --set-section-flags .bss=alloc,contents -O binary sh/shell.elf sh/shell.bin
 
-shell.bin.o: shell.bin
-	$(objcopy) -Ibinary -Oelf32-littleriscv shell.bin shell.bin.o
+sh/shell.bin.o: sh/shell.bin
+	cd sh && $(objcopy) -Ibinary -Oelf32-littleriscv shell.bin shell.bin.o
 
 bin/mkfs: tools/mkfs.c
 	@mkdir -p bin
