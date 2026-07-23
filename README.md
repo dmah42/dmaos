@@ -70,3 +70,33 @@ brew install llvm qemu
 - [ ] **Stateful File Descriptors**:
   - Implement a stateful file descriptor table in the kernel and associated syscalls (`open`, `read`, `write`, `close`).
   - Support read/write seek offsets and automatic atomic file appending.
+
+- [ ] **Dynamic Memory Allocation (`malloc`/`free`)**:
+  - Implement a heap allocator (such as a first-fit or buddy allocator) in the user-space standard library to support dynamic allocations.
+
+- [ ] **Interactive Text Editor**:
+  - Port or write a simple command-line text editor (e.g., a clone of `pico`/`nano`) using ANSI escape sequences to create and edit files interactively in `/home`.
+
+- [ ] **Standard Streams & Shell Piping**:
+  - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers to enable shell command pipelines (e.g., `cat file.txt | grep query`).
+
+---
+
+## Long-Term Architectural Goals
+
+- [ ] **Preemptive Multitasking**:
+  - Set up hardware timer interrupts using the RISC-V SBI timer interface.
+  - Implement a preemptive scheduler to prevent infinite loops in user space from freezing the system.
+- [ ] **Virtual Console Multiplexing (Multi-TTY)**:
+  - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
+- [ ] **Process Signals**:
+  - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
+- [ ] **Network Stack & Utilities (VirtIO Network Card)**:
+  - Implement a `virtio-net` network interface driver and a basic network stack (ARP, IP, ICMP, UDP, TCP).
+  - Create standard command-line networking utilities:
+    - `ping` - ICMP Echo Request/Reply utility to check host reachability.
+    - `traceroute` - TTL-incrementing path analyzer.
+    - `telnet` - clear-text interactive remote terminal client.
+    - `wget` - retrieve files over HTTP directly to the persistent `/home` drive.
+    - `netstat` - track and display active network interface statistics.
+
