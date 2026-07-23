@@ -20,7 +20,7 @@ ssources := sh/shell.c stdlib.c user.c
 uheaders := user.h fs.h stdlib.h
 utxts    := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
-uprogs   := cat hello ls snake
+uprogs   := cat hello ls snake mkdir write
 
 .PHONY: all clean run
 .PRECIOUS: build/root/bin/%.elf

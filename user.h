@@ -7,14 +7,19 @@ __attribute__((noreturn)) void exit(void);
 void putchar(char ch);
 int getchar(void);
 int getchar_nonblock(void);
-void yield(void);
 
 int read_file(const char *name, char *buf, int offset);
+int write_file(const char *name, const char *buf, int len, int offset);
+
 int get_file_name(int index, char *buf, int buf_len);
 int get_file_size(int index);
 int stat(const char *name, struct stat *st);
+
 int spawn(const char *name);
+void yield(void);
 int wait(int pid);
 int kmesg(char *buf, int buf_len);
-int chdir(const char *path);
+
 int getcwd(char *buf, int size);
+int chdir(const char *path);
+int mkdir(const char *path);

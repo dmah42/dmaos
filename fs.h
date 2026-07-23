@@ -68,13 +68,16 @@ struct inode {
 void fs_init();
 
 int fs_read_file(const char *name, char *buf, int offset);
+int fs_write_file(const char *name, const char *buf, int len, int offset);
+
 int fs_get_file_name(int index, char *buf, int buf_len);
 int fs_get_file_size(int index);
 uint32_t fs_get_inode_size(struct inode *ip);
 int fs_stat(const char *path, struct stat *st);
-int fs_chdir(const char *path, struct inode **pip);
 void fs_normalize_path(const char *base, const char *rel, char *dst,
                        size_t dst_len);
+int fs_chdir(const char *path, struct inode **pip);
+int fs_mkdir(const char *path);
 
 // Inode and read helper declarations
 struct inode *iget(uint32_t dev, uint32_t inum);

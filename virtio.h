@@ -7,5 +7,6 @@
 #define VIRTIO_BLK1_PADDR 0x10002000
 
 void virtio_blk_init();
-void read_write_device(uint32_t dev, void *buf, uint32_t sector, bool is_write);
+void read_device(uint32_t dev, void *buf, uint32_t sector);
+void write_device(uint32_t dev, void *buf, uint32_t sector);
 uint32_t virtio_blk_sectors(uint32_t dev);

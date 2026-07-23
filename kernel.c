@@ -127,6 +127,36 @@ static bool validate_user_write_buffer(const void *addr, size_t len) {
   return true;
 }
 
+static bool validate_user_read_buffer(const void *addr, size_t len) {
+  uint32_t start = (uint32_t)addr;
+  uint32_t end = start + len;
+  if (end < start)
+    return false; // Overflow check
+
+  if (end > 0x80000000)
+    return false;
+
+  uint32_t *t1 = get_active_page_table();
+  uint32_t page_start = start & ~(PAGE_SIZE - 1);
+  uint32_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  for (uint32_t va = page_start; va < page_end; va += PAGE_SIZE) {
+    uint32_t vpn1 = (va >> 22) & 0x3ff;
+    if ((t1[vpn1] & PAGE_V) == 0)
+      return false;
+
+    uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
+    uint32_t vpn0 = (va >> 12) & 0x3ff;
+    uint32_t entry = t0[vpn0];
+
+    if ((entry & PAGE_V) == 0)
+      return false;
+    if ((entry & PAGE_U) == 0)
+      return false;
+  }
+  return true;
+}
+
 /*
  * Validates that a user-provided null-terminated string lies entirely within
  * valid, mapped user space. It scans the string byte by byte, checking page
@@ -269,6 +299,30 @@ void handle_syscall(struct trap_frame *f) {
         memcpy(buf, proc->cwd_path, len + 1);
         f->a0 = 0;
       }
+    }
+    break;
+  }
+  case SYSCALL_WRITE_FILE: {
+    const char *name = (const char *)f->a0;
+    const char *buf = (const char *)f->a1;
+    int len = f->a2;
+    int offset = f->a4;
+    if (!validate_user_string(name) ||
+        (len > 0 && !validate_user_read_buffer(buf, len))) {
+      kprintf("write_file: invalid user pointer(s)\n");
+      f->a0 = -1;
+    } else {
+      f->a0 = fs_write_file(name, buf, len, offset);
+    }
+    break;
+  }
+  case SYSCALL_MKDIR: {
+    const char *path = (const char *)f->a0;
+    if (!validate_user_string(path)) {
+      kprintf("mkdir: invalid path pointer\n");
+      f->a0 = -1;
+    } else {
+      f->a0 = fs_mkdir(path);
     }
     break;
   }

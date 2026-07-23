@@ -147,8 +147,8 @@ bool virtq_is_busy(struct virtio_virtq *vq) {
   return vq->last_used_index != *vq->used_index;
 }
 
-void read_write_device(uint32_t dev, void *buf, uint32_t sector,
-                       bool is_write) {
+static void read_write_device(uint32_t dev, void *buf, uint32_t sector,
+                              bool is_write) {
   if (dev >= 2) {
     PANIC("virtio: invalid dev=%d\n", dev);
     return;
@@ -199,6 +199,14 @@ void read_write_device(uint32_t dev, void *buf, uint32_t sector,
   // For read operations, copy the data into the buffer.
   if (!is_write)
     memcpy(buf, d->req->data, SECTOR_SIZE);
+}
+
+void read_device(uint32_t dev, void *buf, uint32_t sector) {
+  read_write_device(dev, buf, sector, /* is_write= */ false);
+}
+
+void write_device(uint32_t dev, void *buf, uint32_t sector) {
+  read_write_device(dev, buf, sector, /* is_write= */ true);
 }
 
 void virtio_blk_init_device(uint32_t dev, uint32_t paddr) {
