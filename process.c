@@ -2,7 +2,7 @@
 
 #include "fs.h"
 #include "kernel.h"
-#include "memory.h"
+#include "page.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];
@@ -155,6 +155,8 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   proc->state = PROCSTATE_RUNNABLE;
   proc->page_table = page_table;
   proc->sp = (uint32_t)sp;
+  proc->heap_start = USER_BASE + align_up(size, PAGE_SIZE);
+  proc->heap_end = proc->heap_start;
   if (argv != NULL && argc > 0) {
     strncpy(proc->name, argv[0], sizeof(proc->name) - 1);
     proc->name[sizeof(proc->name) - 1] = '\0';

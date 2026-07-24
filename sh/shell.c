@@ -209,7 +209,7 @@ void run_command(const char *cmdline) {
     strncat(full_path, cmd_name, sizeof(full_path) - strlen(full_path) - 1);
 
     struct stat st;
-    if (stat(full_path, &st) >= 0 && st.type == FS_FILE) {
+    if (stat(full_path, &st) >= 0 && st.type == FT_FILE) {
       // Reconstruct the cmdline: full_path + rest of cmdline arguments
       char new_cmdline[MAX_PATH];
       strncpy(new_cmdline, full_path, sizeof(new_cmdline) - 1);

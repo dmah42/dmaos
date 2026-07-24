@@ -26,3 +26,5 @@ int kmesg(char *buf, int buf_len);
 int getcwd(char *buf, int size);
 int chdir(const char *path);
 int mkdir(const char *path);
+
+void *sbrk(int increment);

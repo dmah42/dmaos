@@ -13,11 +13,13 @@ struct Process {
   enum ProcState state;
   vaddr_t sp;
   uint32_t *page_table;
-  char name[16];
-  uint8_t stack[8192];
   struct inode *cwd;
-  char cwd_path[MAX_PATH];
+  uint32_t heap_start;
+  uint32_t heap_end;
   struct File *ofile[NUM_FILES_PER_PROCESS];
+  char name[16];
+  char cwd_path[MAX_PATH];
+  uint8_t stack[8192] __attribute__((aligned(16)));
 };
 
 void process_init();

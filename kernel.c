@@ -3,7 +3,7 @@
 #include "errno.h"
 #include "file.h"
 #include "fs.h"
-#include "memory.h"
+#include "page.h"
 #include "process.h"
 #include "stdlib.h"
 #include "syscall.h"
@@ -387,6 +387,66 @@ void handle_syscall(struct trap_frame *f) {
       }
       memcpy(user_buf, kmesg_buf, limit);
       f->a0 = limit;
+    }
+    break;
+  }
+  case SYSCALL_SBRK: {
+    int increment = f->a0;
+    struct Process *proc = get_current_process();
+    uint32_t old_brk = proc->heap_end;
+    uint32_t new_brk = old_brk + increment;
+
+    if (increment < 0) {
+      if (new_brk < proc->heap_start || new_brk > old_brk) {
+        f->a0 = -1;
+        break;
+      }
+      uint32_t old_aligned = align_up(old_brk, PAGE_SIZE);
+      uint32_t new_aligned = align_up(new_brk, PAGE_SIZE);
+      if (new_aligned < old_aligned) {
+        for (uint32_t va = new_aligned; va < old_aligned; va += PAGE_SIZE) {
+          uint32_t *t1 = proc->page_table;
+          uint32_t vpn1 = (va >> 22) & 0x3ff;
+          if (t1[vpn1] & PAGE_V) {
+            uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
+            uint32_t vpn0 = (va >> 12) & 0x3ff;
+            if (t0[vpn0] & PAGE_V) {
+              paddr_t page_paddr = (t0[vpn0] >> 10) * PAGE_SIZE;
+              free_pages(page_paddr, 1);
+              t0[vpn0] = 0;
+            }
+          }
+        }
+        __asm__ __volatile__("sfence.vma" ::: "memory");
+      }
+      proc->heap_end = new_brk;
+      f->a0 = old_brk;
+    } else if (increment > 0) {
+      if (new_brk < old_brk || new_brk >= 0x80000000) {
+        f->a0 = -1;
+        break;
+      }
+      uint32_t old_aligned = align_up(old_brk, PAGE_SIZE);
+      uint32_t new_aligned = align_up(new_brk, PAGE_SIZE);
+      bool success = true;
+
+      for (uint32_t va = old_aligned; va < new_aligned; va += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+        if (!page) {
+          success = false;
+          break;
+        }
+        map_page(proc->page_table, va, page, PAGE_U | PAGE_R | PAGE_W);
+      }
+
+      if (success) {
+        proc->heap_end = new_brk;
+        f->a0 = old_brk;
+      } else {
+        f->a0 = -1;
+      }
+    } else {
+      f->a0 = old_brk;
     }
     break;
   }

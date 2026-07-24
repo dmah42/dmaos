@@ -14,16 +14,16 @@ qflags := -machine virt -bios default -nographic \
 					-drive id=drive1,file=data.img,format=raw,if=none \
 					-device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1
 
-ksources := kernel.c fs.c memory.c process.c stdlib.c virtio.c file.c
-kheaders := kernel.h fs.h memory.h process.h syscall.h virtio.h stdlib.h errno.h file.h
-ssources := sh/shell.c stdlib.c user.c
-uheaders := user.h fs.h stdlib.h errno.h
+ksources := kernel.c fs.c page.c process.c stdlib.c virtio.c file.c
+kheaders := kernel.h fs.h page.h process.h syscall.h virtio.h stdlib.h errno.h file.h
+ssources := sh/shell.c stdlib.c user.c memory.c
+uheaders := user.h fs.h stdlib.h errno.h memory.h
 utxts    := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
-uprogs   := cat hello ls snake mkdir write rm
+uprogs   := cat hello ls snake mkdir write rm memtest
 
 .PHONY: all clean run
-.PRECIOUS: build/root/bin/%.elf
+.PRECIOUS: build/elf/%.elf
 
 all: kernel.elf disk.img data.img
 
@@ -48,7 +48,7 @@ sh/shell.bin.o: sh/shell.bin
 
 bin/mkfs: tools/mkfs.c
 	@mkdir -p bin
-	$(cc) -Wall -Wextra -O2 -o $@ $< -DHOST_BUILD
+	$(cc) -Wall -Wextra -O2 -o $@ $<
 
 disk.img: bin/mkfs $(addprefix build/root/, $(utxts)) $(addprefix build/root/cfg/, $(uconfigs)) $(addprefix build/root/bin/, $(uprogs))
 	@mkdir -p build/root/home
@@ -69,6 +69,6 @@ build/root/bin/%: build/elf/%.elf
 	@mkdir -p build/root/bin
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
 
-build/elf/%.elf: usr/%.c stdlib.c user.c $(uheaders) user.ld
+build/elf/%.elf: usr/%.c memory.c stdlib.c user.c $(uheaders) user.ld
 	@mkdir -p build/elf
 	$(cc) $(cflags) $(uflags) -I. -Wl,-Map=build/elf/$*.map -o $@ $(filter %.c, $^)

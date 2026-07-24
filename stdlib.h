@@ -21,6 +21,8 @@ typedef uint32_t vaddr_t;
 #define NULL ((void *)0)
 #define FS_CHUNK_SIZE (512)
 
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+
 #define MAX_FILENAME (128)
 #define MAX_PATH (256)
 #define MAX_CMD_NAME (64)

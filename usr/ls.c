@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (st.type != FS_DIR) {
+  if (st.type != FT_DIRECTORY) {
     // If it's a file, just list it
     printf("  %s %db\n", target_path, st.size);
     return 0;
@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < entry_count; i++) {
     size_t len = strlen(entries[i].name);
-    if (stats[i].type == FS_DIR) {
+    if (stats[i].type == FT_DIRECTORY) {
       len += 1; // for trailing '/'
     }
     if (len > longest_name) {
@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < entry_count; i++) {
     int visible_len = strlen(entries[i].name);
-    if (stats[i].type == FS_DIR) {
+    if (stats[i].type == FT_DIRECTORY) {
       ++visible_len;
       printf("  " BOLD YELLOW "%s/" DEFAULT, entries[i].name);
     } else {

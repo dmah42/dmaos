@@ -1,23 +1,55 @@
+#include <dirent.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// Temporarily alias guest structs during inclusion to avoid clashing with host
-// standard headers
-#define dirent fsdirent
-#define stat fsstat
-#include "../fs.h"
-#undef dirent
-#undef stat
-
-#include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+// NOTE: keep these in sync with fs.h
+#define BSIZE 1024
+
+#define XV6_FS_MAGIC 0x10203040
+
+#define MAX_DIR_ENTRIES 64
+#define DIRSIZ 30
+#define NDIRECT 12
+#define NINDIRECT (BSIZE / sizeof(uint32_t)) // 256
+#define MAXFILE (NDIRECT + NINDIRECT)
+
+enum FileType {
+  FT_UNUSED = 0,
+  FT_DIRECTORY = 1,
+  FT_FILE = 2,
+};
+
+struct dinode {
+  uint16_t type;               // File type (FS_UNUSED, FS_DIR, FS_FILE)
+  uint16_t major;              // Unused
+  uint16_t minor;              // Unused
+  uint16_t nlink;              // Number of links to inode
+  uint32_t size;               // Size of file (bytes)
+  uint32_t addrs[NDIRECT + 1]; // Data block addresses
+};
+
+struct superblock {
+  uint32_t magic;      // Must be XV6_FS_MAGIC
+  uint32_t size;       // Size of file system image (blocks)
+  uint32_t nblocks;    // Number of data blocks
+  uint32_t ninodes;    // Number of inodes
+  uint32_t inodestart; // Block number of first inode block
+  uint32_t bmapstart;  // Block number of first free map block
+};
+
+struct fsdirent {
+  uint16_t inum;
+  char name[DIRSIZ];
+};
+// END NOTE
+
 #define SECTOR_SIZE 512
-#define DISK_SIZE_BLOCKS 512 // 512 KB total size
+#define DISK_SIZE_BLOCKS 1024 // 512 KB total size
 
 uint8_t disk[DISK_SIZE_BLOCKS * BSIZE];
 uint8_t free_bitmap[BSIZE]; // 1 block for bitmap is plenty (8192 bits)
@@ -98,7 +130,7 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
 
   // Initialize directory inode
   struct dinode *ip = &file_inodes[inum];
-  ip->type = FS_DIR;
+  ip->type = FT_DIRECTORY;
   ip->nlink = 1;
   ip->size = 0;
 
@@ -186,7 +218,7 @@ void add_file(const char *host_path, const char *fs_path,
   }
 
   struct dinode *ip = &file_inodes[inum];
-  ip->type = FS_FILE;
+  ip->type = FT_FILE;
   ip->nlink = 1;
   ip->size = 0;
 
@@ -335,7 +367,7 @@ int main(int argc, char *argv[]) {
   memset(file_inodes, 0, sizeof(file_inodes));
 
   // Set up Root Directory Inode (inum = 1)
-  file_inodes[1].type = FS_DIR;
+  file_inodes[1].type = FT_DIRECTORY;
   file_inodes[1].nlink = 1;
   file_inodes[1].size = 0;
 

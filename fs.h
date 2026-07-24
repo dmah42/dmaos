@@ -2,25 +2,27 @@
 
 #include "file.h"
 
-#ifdef HOST_BUILD
-#include <stdint.h>
-#include <string.h>
-#else
 #include "stdlib.h"
-#endif
 
 #define BSIZE 1024
+
 #define XV6_FS_MAGIC 0x10203040
-#define FS_UNUSED 0
-#define FS_DIR 1
-#define FS_FILE 2
 
 #define NDIRECT 12
 #define NINDIRECT (BSIZE / sizeof(uint32_t)) // 256
 #define MAXFILE (NDIRECT + NINDIRECT)
 
+#define MAX_DIR_ENTRIES 64
+#define DIRSIZ 30
+
 #define NINODE 50
 #define SECTORS_PER_BLOCK 2
+
+enum FileType {
+  FT_UNUSED = 0,
+  FT_DIRECTORY = 1,
+  FT_FILE = 2,
+};
 
 struct superblock {
   uint32_t magic;      // Must be XV6_FS_MAGIC
@@ -32,16 +34,13 @@ struct superblock {
 };
 
 struct dinode {
-  uint16_t type;               // File type (FS_UNUSED, FS_DIR, FS_FILE)
-  uint16_t major;              // Unused
-  uint16_t minor;              // Unused
+  enum FileType type;
+  // uint16_t major;              // Unused
+  // uint16_t minor;              // Unused
   uint16_t nlink;              // Number of links to inode
   uint32_t size;               // Size of file (bytes)
   uint32_t addrs[NDIRECT + 1]; // Data block addresses
 };
-
-#define MAX_DIR_ENTRIES 64
-#define DIRSIZ 30
 
 struct dirent {
   uint16_t inum;
@@ -59,12 +58,7 @@ struct inode {
   int ref;       // Reference count
   int valid;     // Flag: Inode contents loaded from disk?
 
-  uint16_t type; // Copy of dinode properties
-  uint16_t major;
-  uint16_t minor;
-  uint16_t nlink;
-  uint32_t size;
-  uint32_t addrs[NDIRECT + 1];
+  struct dinode dinode;
 };
 
 #define O_READ 0x001

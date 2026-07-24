@@ -102,6 +102,10 @@ int mkdir(const char *path) { return syscall1(SYSCALL_MKDIR, (uint32_t)path); }
 
 int rm(const char *path) { return syscall1(SYSCALL_RM, (uint32_t)path); }
 
+void *sbrk(int increment) {
+  return (void *)syscall1(SYSCALL_SBRK, (uint32_t)increment);
+}
+
 extern int main(int argc, char **argv);
 
 void umain(int argc, char **argv) {

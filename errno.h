@@ -3,6 +3,7 @@
 enum Errno {
   ERR_NOT_PERMITTED = -1,
   ERR_NOT_FOUND = -2,
+  ERR_NO_MEMORY = -4,
   ERR_IO = -5,
   ERR_BAD_FILE = -9,
   ERR_PERMISSION_DENIED = -13,

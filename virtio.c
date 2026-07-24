@@ -1,7 +1,7 @@
 #include "virtio.h"
 
 #include "kernel.h"
-#include "memory.h"
+#include "page.h"
 #include "stdlib.h"
 
 #define VIRTQ_ENTRY_NUM 16

@@ -20,4 +20,5 @@ enum Syscall {
   SYSCALL_GETCWD,
   SYSCALL_MKDIR,
   SYSCALL_RM,
+  SYSCALL_SBRK,
 };

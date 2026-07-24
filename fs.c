@@ -88,12 +88,8 @@ static void ilock(struct inode *ip) {
     read_block(ip->dev, block, buf);
     struct dinode *dip = (struct dinode *)(buf + offset);
 
-    ip->type = dip->type;
-    ip->major = dip->major;
-    ip->minor = dip->minor;
-    ip->nlink = dip->nlink;
-    ip->size = dip->size;
-    memcpy(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    memcpy(&ip->dinode, dip, sizeof(struct dinode));
+    memcpy(ip->dinode.addrs, dip->addrs, sizeof(ip->dinode.addrs));
     ip->valid = 1;
   }
 }
@@ -107,7 +103,7 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
     PANIC("bmap: invalid ip\n");
   }
   if (bn < NDIRECT) {
-    uint32_t addr = ip->addrs[bn];
+    uint32_t addr = ip->dinode.addrs[bn];
     if (addr == 0) {
       PANIC("bmap: inode %d direct block %d is 0", ip->inum, bn);
     }
@@ -116,7 +112,7 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
 
   bn -= NDIRECT;
   if (bn < NINDIRECT) {
-    uint32_t indirect_block = ip->addrs[NDIRECT];
+    uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
     if (indirect_block == 0) {
       PANIC("bmap: inode %d single-indirect block is 0", ip->inum);
     }
@@ -142,19 +138,19 @@ int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
     return -1;
   }
   ilock(ip);
-  if (ip->type == FS_UNUSED) {
+  if (ip->dinode.type == FT_UNUSED) {
     kprintf("readi: inode %d is unused\n", ip->inum);
     return -1;
   }
 
-  if (offset > ip->size || offset + n < offset) {
+  if (offset > ip->dinode.size || offset + n < offset) {
     kprintf(
         "readi: invalid read parameters: offset %d, size %d, file size %d\n",
-        offset, n, ip->size);
+        offset, n, ip->dinode.size);
     return -1;
   }
-  if (offset + n > ip->size) {
-    n = ip->size - offset;
+  if (offset + n > ip->dinode.size) {
+    n = ip->dinode.size - offset;
   }
 
   uint32_t tot, m;
@@ -179,15 +175,15 @@ int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
  */
 static struct inode *dirlookup(struct inode *dp, const char *name,
                                uint32_t *poff) {
-  if (dp->type != FS_DIR) {
+  if (dp->dinode.type != FT_DIRECTORY) {
     kprintf("dirlookup: inode %d is not a directory (type %d)\n", dp->inum,
-            dp->type);
+            dp->dinode.type);
     return NULL;
   }
   ilock(dp);
 
   struct dirent de;
-  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+  for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       kprintf("dirlookup: readi failed reading directory entries of inum %d\n",
               dp->inum);
@@ -250,10 +246,10 @@ static struct inode *namex(const char *path, bool parent, char *name) {
 
   while ((path = skipto(path, name)) != NULL) {
     ilock(ip);
-    if (ip->type != FS_DIR) {
+    if (ip->dinode.type != FT_DIRECTORY) {
       kprintf(
           "namex: path component '%s' is not a directory (inum %d, type %d)\n",
-          name, ip->inum, ip->type);
+          name, ip->inum, ip->dinode.type);
       iput(ip);
       return NULL;
     }
@@ -369,7 +365,7 @@ int fs_get_file_name(int index, char *buf, int buf_len) {
 
   struct dirent de;
   int current_index = 0;
-  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+  for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       iput(dp);
       return -1;
@@ -410,7 +406,7 @@ int fs_get_file_size(int index) {
 
   struct dirent de;
   int current_index = 0;
-  for (uint32_t off = 0; off < dp->size; off += sizeof(de)) {
+  for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       iput(dp);
       return -1;
@@ -425,7 +421,7 @@ int fs_get_file_size(int index) {
     if (current_index == index) {
       struct inode *ip = iget(0, de.inum);
       ilock(ip);
-      int size = ip->size;
+      int size = ip->dinode.size;
       iput(ip);
       iput(dp);
       return size;
@@ -446,7 +442,7 @@ uint32_t fs_get_inode_size(struct inode *ip) {
     return 0;
   }
   ilock(ip);
-  return ip->size;
+  return ip->dinode.size;
 }
 
 /*
@@ -458,8 +454,8 @@ int fs_stat(const char *path, struct stat *st) {
     return ERR_NOT_FOUND;
   }
   ilock(ip);
-  st->type = ip->type;
-  st->size = ip->size;
+  st->type = ip->dinode.type;
+  st->size = ip->dinode.size;
   iput(ip);
   return 0;
 }
@@ -470,7 +466,7 @@ int fs_chdir(const char *path, struct inode **pip) {
     return ERR_NOT_FOUND;
   }
   ilock(ip);
-  if (ip->type != FS_DIR) {
+  if (ip->dinode.type != FT_DIRECTORY) {
     iput(ip);
     return ERR_NOT_A_DIRECTORY;
   }
@@ -557,12 +553,8 @@ void iupdate(struct inode *ip) {
   uint8_t buf[BSIZE];
   read_block(ip->dev, block, buf);
   struct dinode *dip = (struct dinode *)(buf + offset);
-  dip->type = ip->type;
-  dip->major = ip->major;
-  dip->minor = ip->minor;
-  dip->nlink = ip->nlink;
-  dip->size = ip->size;
-  memcpy(dip->addrs, ip->addrs, sizeof(ip->addrs));
+  memcpy(dip, &ip->dinode, sizeof(struct dinode));
+  memcpy(dip->addrs, ip->dinode.addrs, sizeof(ip->dinode.addrs));
   write_block(ip->dev, block, buf);
 }
 
@@ -594,7 +586,7 @@ struct inode *ialloc(uint32_t dev, uint32_t type) {
     uint32_t offset = (inum % inodes_per_block) * sizeof(struct dinode);
     read_block(dev, block, buf);
     struct dinode *dip = (struct dinode *)(buf + offset);
-    if (dip->type == FS_UNUSED) {
+    if (dip->type == FT_UNUSED) {
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
       dip->nlink = 1;
@@ -602,12 +594,10 @@ struct inode *ialloc(uint32_t dev, uint32_t type) {
 
       struct inode *ip = iget(dev, inum);
       if (ip != NULL) {
-        ip->type = type;
-        ip->major = 0;
-        ip->minor = 0;
-        ip->nlink = 1;
-        ip->size = 0;
-        memset(ip->addrs, 0, sizeof(ip->addrs));
+        ip->dinode.type = type;
+        ip->dinode.nlink = 1;
+        ip->dinode.size = 0;
+        memset(ip->dinode.addrs, 0, sizeof(ip->dinode.addrs));
         ip->valid = 1;
       }
       return ip;
@@ -621,10 +611,10 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
     PANIC("bmap_alloc: invalid ip\n");
   }
   if (bn < NDIRECT) {
-    uint32_t addr = ip->addrs[bn];
+    uint32_t addr = ip->dinode.addrs[bn];
     if (addr == 0) {
       addr = balloc(ip->dev);
-      ip->addrs[bn] = addr;
+      ip->dinode.addrs[bn] = addr;
       iupdate(ip);
     }
     return addr;
@@ -632,10 +622,10 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
 
   bn -= NDIRECT;
   if (bn < NINDIRECT) {
-    uint32_t indirect_block = ip->addrs[NDIRECT];
+    uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
     if (indirect_block == 0) {
       indirect_block = balloc(ip->dev);
-      ip->addrs[NDIRECT] = indirect_block;
+      ip->dinode.addrs[NDIRECT] = indirect_block;
       iupdate(ip);
     }
     uint32_t indirect[BSIZE / sizeof(uint32_t)];
@@ -658,7 +648,7 @@ int writei(struct inode *ip, const char *src, uint32_t offset, uint32_t n) {
     return -1;
   }
   ilock(ip);
-  if (offset > ip->size || offset + n < offset) {
+  if (offset > ip->dinode.size || offset + n < offset) {
     kprintf("write: invalid offset or n");
     return -1;
   }
@@ -683,8 +673,8 @@ int writei(struct inode *ip, const char *src, uint32_t offset, uint32_t n) {
     write_block(ip->dev, block, buf);
   }
 
-  if (n > 0 && offset > ip->size) {
-    ip->size = offset;
+  if (n > 0 && offset > ip->dinode.size) {
+    ip->dinode.size = offset;
     iupdate(ip);
   }
   return n;
@@ -704,24 +694,24 @@ static void bfree(uint32_t dev, uint32_t block) {
 
 static void itrunc(struct inode *ip, uint32_t new_size) {
   ilock(ip);
-  if (new_size >= ip->size) {
+  if (new_size >= ip->dinode.size) {
     return;
   }
 
-  uint32_t old_blocks = (ip->size + BSIZE - 1) / BSIZE;
+  uint32_t old_blocks = (ip->dinode.size + BSIZE - 1) / BSIZE;
   uint32_t new_blocks = (new_size + BSIZE - 1) / BSIZE;
 
   if (new_blocks < old_blocks) {
     for (uint32_t bn = new_blocks; bn < old_blocks; ++bn) {
       if (bn < NDIRECT) {
-        uint32_t addr = ip->addrs[bn];
+        uint32_t addr = ip->dinode.addrs[bn];
         if (addr != 0) {
           bfree(ip->dev, addr);
-          ip->addrs[bn] = 0;
+          ip->dinode.addrs[bn] = 0;
         }
       } else {
         uint32_t indirect_idx = bn - NDIRECT;
-        uint32_t indirect_block = ip->addrs[NDIRECT];
+        uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
         if (indirect_block != 0) {
           uint32_t indirect[BSIZE / sizeof(uint32_t)];
           read_block(ip->dev, indirect_block, indirect);
@@ -736,15 +726,15 @@ static void itrunc(struct inode *ip, uint32_t new_size) {
     }
 
     if (new_blocks <= NDIRECT) {
-      uint32_t indirect_block = ip->addrs[NDIRECT];
+      uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
       if (indirect_block != 0) {
         bfree(ip->dev, indirect_block);
-        ip->addrs[NDIRECT] = 0;
+        ip->dinode.addrs[NDIRECT] = 0;
       }
     }
   }
 
-  ip->size = new_size;
+  ip->dinode.size = new_size;
   iupdate(ip);
 }
 
@@ -759,7 +749,7 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
   ilock(dp);
   struct dirent de;
   uint32_t off;
-  for (off = 0; off < dp->size; off += sizeof(de)) {
+  for (off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       return -1;
     }
@@ -788,7 +778,7 @@ static int alloc_file_descriptor(struct inode *ip, int flags) {
   f->ip = ip;
   f->readable = (flags & O_READ) != 0;
   f->writable = (flags & O_WRITE) != 0;
-  f->off = (flags & O_APPEND) ? ip->size : 0;
+  f->off = (flags & O_APPEND) ? ip->dinode.size : 0;
 
   struct Process *proc = get_current_process();
   for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
@@ -819,7 +809,7 @@ int fs_create(const char *path, int flags) {
 
   struct inode *ip = dirlookup(dp, file_part, NULL);
   if (ip == NULL) {
-    ip = ialloc(dp->dev, FS_FILE);
+    ip = ialloc(dp->dev, FT_FILE);
     if (ip == NULL) {
       kprintf("fs_create: inode allocation failed\n");
       iput(dp);
@@ -833,7 +823,7 @@ int fs_create(const char *path, int flags) {
     }
   } else {
     ilock(ip);
-    if ((flags & O_TRUNC) && (ip->type == FS_FILE)) {
+    if ((flags & O_TRUNC) && (ip->dinode.type == FT_FILE)) {
       itrunc(ip, 0);
     }
   }
@@ -855,7 +845,7 @@ int fs_open(const char *path, int flags) {
     return ERR_PERMISSION_DENIED;
   }
 
-  if ((flags & O_TRUNC) && (ip->type == FS_FILE)) {
+  if ((flags & O_TRUNC) && (ip->dinode.type == FT_FILE)) {
     itrunc(ip, 0);
   }
 
@@ -928,7 +918,7 @@ int fs_mkdir(const char *path) {
     return ERR_ALREADY_EXISTS;
   }
 
-  ip = ialloc(dp->dev, FS_DIR);
+  ip = ialloc(dp->dev, FT_DIRECTORY);
   if (ip == NULL) {
     iput(dp);
     return ERR_NO_SPACE;
@@ -968,7 +958,7 @@ int fs_mkdir(const char *path) {
 
 static bool is_dir_empty(struct inode *ip) {
   struct dirent de;
-  for (uint32_t off = 0; off < ip->size; off += sizeof(de)) {
+  for (uint32_t off = 0; off < ip->dinode.size; off += sizeof(de)) {
     if (readi(ip, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       return false;
     }
@@ -1007,7 +997,7 @@ int fs_rm(const char *path) {
   }
 
   ilock(ip);
-  if (ip->type == FS_DIR) {
+  if (ip->dinode.type == FT_DIRECTORY) {
     if (!is_dir_empty(ip)) {
       kprintf("fs_rm: directory '%s' is not empty\n", file_part);
       iput(ip);
@@ -1027,7 +1017,7 @@ int fs_rm(const char *path) {
 
   itrunc(ip, 0);
 
-  ip->type = FS_UNUSED;
+  ip->dinode.type = FT_UNUSED;
   iupdate(ip);
 
   iput(ip);

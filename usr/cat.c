@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
     printf("cat: '%s': %s\n", filename, strerror(ret));
     return 1;
   }
-  if (st.type == FS_DIR) {
+  if (st.type == FT_DIRECTORY) {
     printf("cat: '%s': %s\n", filename, strerror(ERR_IS_A_DIRECTORY));
     return 1;
   }

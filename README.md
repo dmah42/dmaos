@@ -11,6 +11,7 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
 - **Memory Mapping**: SV32 paging system with kernel pages mapped directly and user pages mapped dynamically.
 - **Multitasking**: Cooperative scheduler with context switching, process spawning, and parent-child execution waiting.
 - **System Calls**: Parameter-specific assembly syscall routines (`syscall1` to `syscall4`) routing user space traps (`ecall`) to kernel handlers. Returns detailed self-documenting negative error codes (`enum Errno` from `errno.h`) translated via `strerror` in user space.
+- **Dynamic Memory Allocation**: Standard heap allocator (`malloc`, `free`, `calloc`, `realloc`) using a first-fit boundary-tag (header/footer) design in the user-space standard library, backed by the `sbrk` system call which dynamically maps physical pages into the user address space.
 
 ### 2. Block Drivers & Mounting
 - **VirtIO MMIO**: Support for two concurrent VirtIO block device controllers mapped to separate MMIO slots (`0x10001000` and `0x10002000`) and distinct QEMU buses.
@@ -63,9 +64,6 @@ brew install llvm qemu
 ---
 
 ## Future Roadmap (TODOs)
-
-- [ ] **Dynamic Memory Allocation (`malloc`/`free`)**:
-  - Implement a heap allocator (such as a first-fit or buddy allocator) in the user-space standard library to support dynamic allocations.
 
 - [ ] **Interactive Text Editor**:
   - Port or write a simple command-line text editor (e.g., a clone of `pico`/`nano`) using ANSI escape sequences to create and edit files interactively in `/home`.
