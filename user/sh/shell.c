@@ -1,6 +1,8 @@
+#include "fcntl.h"
 #include "fs_shared.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include "string.h"
 #include "user.h"
 
 #define MAX_PATH_DIRS 32
@@ -92,7 +94,7 @@ void init_config(void) {
   memset(config, 0, sizeof(config));
   int offset = 0;
   int bytes_read = 0;
-  int fd = open("/cfg/dmash.cfg", O_READ);
+  int fd = open("/cfg/dmash.cfg", O_RDONLY);
   if (fd >= 0) {
     while (offset < MAX_CONFIG_LEN - 1) {
       bytes_read = read(fd, config + offset, MAX_CONFIG_LEN - 1 - offset);
@@ -330,6 +332,9 @@ int main(void) {
   init_config();
   detect_utf8();
 
+  // Clear the screen of any bios messages.
+  printf("\033[2J\033[3J\033[H");
+
   print_formatted(msg_fmt, "");
 
   while (1) {
@@ -369,7 +374,7 @@ int main(void) {
     }
 
     if (strcmp(cmdline, "exit") == 0) {
-      exit();
+      exit(0);
     } else if (strcmp(cmdline, "kmesg") == 0) {
       kmesg_cmd();
     } else if (strncmp(cmdline, "cd", 2) == 0 &&

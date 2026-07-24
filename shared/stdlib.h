@@ -37,11 +37,6 @@ typedef uint32_t vaddr_t;
 #define CYAN "\033[36m"
 #define RALIGN "\033[999C\033[6D"
 
-#define va_list __builtin_va_list
-#define va_start __builtin_va_start
-#define va_end __builtin_va_end
-#define va_arg __builtin_va_arg
-
 struct stat {
   int type;
   int size;
@@ -52,8 +47,8 @@ void free(void *ptr);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *ptr, size_t size);
 
-void *memset(void *buf, char c, size_t n);
-void *memcpy(void *dst, const void *src, size_t n);
+int memcmp(const void *s1, const void *s2, size_t n);
+void *memmove(void *dst, const void *src, size_t n);
 
 int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, size_t n);
@@ -61,6 +56,11 @@ size_t strlen(const char *s);
 char *strncpy(char *dst, const char *src, size_t n);
 char *strncat(char *dst, const char *src, size_t n);
 char *strchr(const char *s, int c);
+char *strstr(const char *haystack, const char *needle);
+
+__attribute__((noreturn)) void exit(int);
+int atexit(void (*func)(void));
+void run_exit_handlers(void);
 
 void srand(uint32_t seed);
 uint32_t rand(void);

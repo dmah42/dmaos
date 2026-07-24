@@ -20,6 +20,7 @@ int fs_open(const char *path, int flags);
 int fs_read(int fd, char *buf, int n);
 int fs_write(int fd, const char *buf, int n);
 int fs_close(int fd);
+int fs_ftruncate(int fd, int length);
 int fs_rm(const char *path);
 
 int fs_get_file_name(int index, char *buf, int buf_len);

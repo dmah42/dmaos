@@ -44,10 +44,3 @@ struct fsdirent {
   uint16_t inum;
   char name[DIRSIZ];
 };
-
-#define O_READ 0x001
-#define O_WRITE 0x002
-#define O_RDWR (O_READ | O_WRITE)
-#define O_CREATE 0x004
-#define O_TRUNC 0x008
-#define O_APPEND 0x010

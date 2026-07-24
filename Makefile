@@ -25,7 +25,7 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat hello ls snake mkdir write rm memtest
+uprogs := cat hello ls snake mkdir write rm memtest kilo
 utxts := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
 
@@ -54,7 +54,7 @@ $(BUILD_DIR)/shared/%.o: $(SHARED_DIR)/%.c
 
 # ----------------- User Library -----------------
 
-USER_LIB_OBJS := $(addprefix $(BUILD_DIR)/user/lib/, user.o memory.o)
+USER_LIB_OBJS := $(addprefix $(BUILD_DIR)/user/lib/, user.o memory.o stdio.o unistd.o termios.o ioctl.o signal.o time.o)
 
 $(BUILD_DIR)/user/lib/%.o: $(USER_DIR)/lib/%.c
 	@mkdir -p $(dir $@)
@@ -64,7 +64,7 @@ $(BUILD_DIR)/user/lib/%.o: $(USER_DIR)/lib/%.c
 
 $(BUILD_DIR)/user/sh/shell.o: $(USER_DIR)/sh/shell.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
 
 $(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(SHARED_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)
@@ -78,9 +78,13 @@ $(BUILD_DIR)/user/sh/shell.bin.o: $(BUILD_DIR)/user/sh/shell.bin
 
 # ----------------- User Programs -----------------
 
+$(BUILD_DIR)/user/bin/kilo.o: third_party/kilo/kilo.c
+	@mkdir -p $(dir $@)
+	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
+
 $(BUILD_DIR)/user/bin/%.o: $(USER_DIR)/bin/%.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
 
 $(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(SHARED_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)

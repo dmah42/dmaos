@@ -1,7 +1,6 @@
 #include "stdlib.h"
 
 #include "errno.h"
-#include "stdio.h"
 
 void putchar(char);
 void yield(void);
@@ -92,123 +91,6 @@ char *strchr(const char *s, int c) {
   return NULL;
 }
 
-void vprintf(void (*putc)(char), const char *fmt, va_list vargs) {
-  while (*fmt) {
-    if (*fmt == '%') {
-      ++fmt;
-      bool left_align = false;
-      if (*fmt == '-') {
-        left_align = true;
-        ++fmt;
-      }
-
-      int width = 0;
-      if (*fmt == '*') {
-        width = va_arg(vargs, int);
-        ++fmt;
-      }
-
-      switch (*fmt) {
-      case '\0':
-        putc('%');
-        return;
-      case '%':
-        putc('%');
-        break;
-      case 's': {
-        const char *s = va_arg(vargs, const char *);
-        int len = strlen(s);
-        int pad = width - len;
-
-        if (!left_align) {
-          for (int i = 0; i < pad; i++) {
-            putc(' ');
-          }
-        }
-
-        while (*s) {
-          putc(*s);
-          ++s;
-        }
-
-        if (left_align) {
-          for (int i = 0; i < pad; i++) {
-            putc(' ');
-          }
-        }
-        break;
-      }
-      case 'd': {
-        int value = va_arg(vargs, int);
-        unsigned mag = value;
-        int len = 0;
-
-        if (value < 0) {
-          len++; // For '-'
-          mag = -mag;
-        }
-
-        unsigned temp = mag;
-        if (temp == 0) {
-          len++;
-        } else {
-          while (temp > 0) {
-            len++;
-            temp /= 10;
-          }
-        }
-
-        int pad = width - len;
-        if (!left_align) {
-          for (int i = 0; i < pad; i++) {
-            putc(' ');
-          }
-        }
-
-        if (value < 0) {
-          putc('-');
-        }
-
-        unsigned div = 1;
-        while (mag / div > 9)
-          div *= 10;
-
-        while (div > 0) {
-          putc('0' + mag / div);
-          mag %= div;
-          div /= 10;
-        }
-
-        if (left_align) {
-          for (int i = 0; i < pad; i++) {
-            putc(' ');
-          }
-        }
-        break;
-      }
-      case 'x': {
-        unsigned val = va_arg(vargs, unsigned);
-        for (int i = 7; i >= 0; --i) {
-          unsigned nibble = (val >> (i * 4)) & 0xf;
-          putc("0123456789abcdef"[nibble]);
-        }
-        break;
-      }
-      }
-    } else {
-      putc(*fmt);
-    }
-    ++fmt;
-  }
-}
-
-void printf(const char *fmt, ...) {
-  va_list vargs;
-  va_start(vargs, fmt);
-  vprintf(putchar, fmt, vargs);
-  va_end(vargs);
-}
-
 static uint32_t rand_state = 12345;
 
 void srand(uint32_t seed) { rand_state = seed; }
@@ -265,5 +147,79 @@ const char *strerror(int err) {
     return "directory not empty";
   default:
     return "unknown error";
+  }
+}
+
+char *strstr(const char *haystack, const char *needle) {
+  size_t needle_len = strlen(needle);
+  if (needle_len == 0) {
+    return (char *)haystack;
+  }
+  while (*haystack) {
+    if (strncmp(haystack, needle, needle_len) == 0) {
+      return (char *)haystack;
+    }
+    ++haystack;
+  }
+  return NULL;
+}
+
+int memcmp(const void *s1, const void *s2, size_t n) {
+  const uint8_t *p1 = s1;
+  const uint8_t *p2 = s2;
+  while (n--) {
+    if (*p1 != *p2) {
+      return *p1 - *p2;
+    }
+    ++p1;
+    ++p2;
+  }
+  return 0;
+}
+
+void *memmove(void *dst, const void *src, size_t n) {
+  uint8_t *d = dst;
+  const uint8_t *s = src;
+  if (d < s) {
+    while (n--) {
+      *d++ = *s++;
+    }
+  } else if (d > s) {
+    d += n;
+    s += n;
+    while (n--) {
+      *--d = *--s;
+    }
+  }
+  return dst;
+}
+
+int isdigit(int c) { return c >= '0' && c <= '9'; }
+
+int isspace(int c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' ||
+         c == '\f';
+}
+
+int isprint(int c) { return c >= 32 && c < 127; }
+
+#define MAX_ATEXIT_FUNCS (32)
+
+static void (*atexit_funcs[MAX_ATEXIT_FUNCS])(void);
+static int atexit_count = 0;
+
+int atexit(void (*func)(void)) {
+  if (atexit_count >= MAX_ATEXIT_FUNCS) {
+    return -1;
+  }
+  atexit_funcs[atexit_count++] = func;
+  return 0;
+}
+
+void run_exit_handlers(void) {
+  for (int i = atexit_count - 1; i >= 0; --i) {
+    if (atexit_funcs[i]) {
+      atexit_funcs[i]();
+    }
   }
 }

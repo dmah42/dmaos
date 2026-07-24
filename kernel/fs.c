@@ -1,9 +1,12 @@
 #include "fs.h"
 
 #include "errno.h"
+#include "fcntl.h"
+#include "file.h"
 #include "kernel.h"
 #include "process.h"
 #include "stdlib.h"
+#include "string.h"
 #include "virtio.h"
 
 static struct superblock sb[2];
@@ -775,9 +778,10 @@ static int alloc_file_descriptor(struct inode *ip, int flags) {
     return ERR_NO_SPACE;
   }
 
+  f->type = FD_INODE;
   f->ip = ip;
-  f->readable = (flags & O_READ) != 0;
-  f->writable = (flags & O_WRITE) != 0;
+  f->readable = (flags & O_RDONLY) != 0;
+  f->writable = (flags & O_WRONLY) != 0;
   f->off = (flags & O_APPEND) ? ip->dinode.size : 0;
 
   struct Process *proc = get_current_process();
@@ -801,7 +805,7 @@ int fs_create(const char *path, int flags) {
     return ERR_NOT_FOUND;
   }
 
-  if (dp->dev == 0 && (flags & (O_WRITE | O_CREATE | O_TRUNC | O_APPEND))) {
+  if (dp->dev == 0 && (flags & (O_WRONLY | O_CREAT | O_TRUNC | O_APPEND))) {
     kprintf("fs_create: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
     return ERR_PERMISSION_DENIED;
@@ -833,13 +837,32 @@ int fs_create(const char *path, int flags) {
 }
 
 int fs_open(const char *path, int flags) {
+  // Special case for "console" type file descriptors.
+  if (strcmp(path, "console") == 0) {
+    struct File *f = file_create(FD_CONSOLE, flags);
+    if (f == NULL) {
+      return ERR_NO_SPACE;
+    }
+
+    struct Process *proc = get_current_process();
+    for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
+      if (proc->ofile[fd] == NULL) {
+        proc->ofile[fd] = f;
+        return fd;
+      }
+    }
+    file_close(f);
+    return ERR_NO_SPACE;
+  }
+
+  // Regular case for path-based files.
   struct inode *ip = namei(path);
   if (ip == NULL) {
     return ERR_NOT_FOUND;
   }
   ilock(ip);
 
-  if (ip->dev == 0 && (flags & (O_WRITE | O_TRUNC))) {
+  if (ip->dev == 0 && (flags & (O_WRONLY | O_TRUNC))) {
     kprintf("fs_open: write access denied on dev %d (read-only)\n", ip->dev);
     iput(ip);
     return ERR_PERMISSION_DENIED;
@@ -858,15 +881,31 @@ int fs_read(int fd, char *buf, int n) {
     return ERR_BAD_FILE;
   }
   struct File *f = proc->ofile[fd];
+  if (f->type == FD_NONE) {
+    return ERR_BAD_FILE;
+  }
   if (!f->readable) {
     return ERR_PERMISSION_DENIED;
   }
 
-  int r = readi(f->ip, buf, f->off, n);
-  if (r > 0) {
-    f->off += r;
+  if (f->type == FD_CONSOLE) {
+    for (int i = 0; i < n; i++) {
+      long ch;
+      while ((ch = getchar()) < 0) {
+        yield();
+      }
+      buf[i] = (char)ch;
+    }
+    return n;
+  } else if (f->type == FD_INODE) {
+    int r = readi(f->ip, buf, f->off, n);
+    if (r > 0) {
+      f->off += r;
+    }
+    return r;
+  } else {
+    PANIC("unsupported file desc type %d", f->type);
   }
-  return r;
 }
 
 int fs_write(int fd, const char *buf, int n) {
@@ -875,15 +914,28 @@ int fs_write(int fd, const char *buf, int n) {
     return ERR_BAD_FILE;
   }
   struct File *f = proc->ofile[fd];
+  if (f->type == FD_NONE) {
+    return ERR_BAD_FILE;
+  }
   if (!f->writable) {
     return ERR_PERMISSION_DENIED;
   }
 
-  int w = writei(f->ip, buf, f->off, n);
-  if (w > 0) {
-    f->off += w;
+  if (f->type == FD_CONSOLE) {
+    for (int i = 0; i < n; i++) {
+      putchar(buf[i]);
+    }
+    return n;
+  } else if (f->type == FD_INODE) {
+
+    int w = writei(f->ip, buf, f->off, n);
+    if (w > 0) {
+      f->off += w;
+    }
+    return w < 0 ? ERR_NO_SPACE : w;
+  } else {
+    PANIC("unsupported file desc type: %d", f->type);
   }
-  return w < 0 ? ERR_NO_SPACE : w;
 }
 
 int fs_close(int fd) {
@@ -892,9 +944,34 @@ int fs_close(int fd) {
     return ERR_BAD_FILE;
   }
   struct File *f = proc->ofile[fd];
+  if (f->type == FD_NONE) {
+    return ERR_BAD_FILE;
+  }
   proc->ofile[fd] = NULL;
   file_close(f);
   return 0;
+}
+
+int fs_ftruncate(int fd, int length) {
+  struct Process *proc = get_current_process();
+  if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
+    return ERR_BAD_FILE;
+  }
+  struct File *f = proc->ofile[fd];
+  if (!f->writable) {
+    return ERR_PERMISSION_DENIED;
+  }
+  if (f->type == FD_NONE) {
+    return ERR_BAD_FILE;
+  }
+  if (length < 0) {
+    return ERR_INVALID_ARGUMENT;
+  }
+  if (f->type == FD_INODE) {
+    itrunc(f->ip, length);
+    return 0;
+  }
+  return ERR_INVALID_ARGUMENT;
 }
 
 int fs_mkdir(const char *path) {

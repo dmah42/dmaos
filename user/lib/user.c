@@ -1,7 +1,9 @@
 #include "user.h"
 
 #include "stdlib.h"
+#include "string.h"
 #include "syscall.h"
+#include "unistd.h"
 
 extern char __stack_top[];
 extern char __bss[], __bss_end[];
@@ -39,12 +41,6 @@ static int syscall3(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
   return a0;
 }
 
-__attribute__((noreturn)) void exit(void) {
-  syscall1(SYSCALL_EXIT, 0);
-  for (;;)
-    ; // unreachable but just in case.
-}
-
 void putchar(char ch) { syscall1(SYSCALL_PUTCHAR, ch); }
 int getchar_nonblock(void) { return syscall1(SYSCALL_GETCHAR, 0); }
 
@@ -60,9 +56,16 @@ int getchar(void) {
   }
 }
 
-int open(const char *path, int flags) {
-  return syscall2(SYSCALL_OPEN, (uint32_t)path, flags);
+#define DEFAULT_MODE (0644)
+
+int(open)(const char *path, int flags, int mode) {
+  return syscall3(SYSCALL_OPEN, (uint32_t)path, flags, mode);
 }
+
+#define open(path, flags, ...)                                                 \
+  open(path, flags,                                                            \
+       (int)[]{DEFAULT_MODE, ##__VA_ARGS__}                                    \
+           [sizeof((int)[]{DEFAULT_MODE, ##__VA_ARGS__}) / sizeof(int) - 1])
 
 int read(int fd, void *buf, int n) {
   return syscall3(SYSCALL_READ, fd, (uint32_t)buf, n);
@@ -106,13 +109,29 @@ void *sbrk(int increment) {
   return (void *)syscall1(SYSCALL_SBRK, (uint32_t)increment);
 }
 
+int ftruncate(int fd, int length) {
+  return syscall2(SYSCALL_FTRUNCATE, fd, length);
+}
+
+// TODO: don't love this being split between stdlib.h and user.c.
+// we need to figure out how to correctly manage exposure to kernel syscalls
+__attribute__((noreturn)) void exit(int exit_code) {
+  run_exit_handlers();
+  close(STDIN_FILENO);
+  close(STDOUT_FILENO);
+  close(STDERR_FILENO);
+  syscall1(SYSCALL_EXIT, exit_code);
+  for (;;)
+    ; // unreachable but just in case.
+}
+
 extern int main(int argc, char **argv);
 
 void umain(int argc, char **argv) {
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
 
-  main(argc, argv);
-  exit();
+  int exit_code = main(argc, argv);
+  exit(exit_code);
 }
 
 __attribute__((section(".text.start"))) __attribute__((naked)) void

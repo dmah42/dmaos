@@ -1,14 +1,17 @@
 #include "kernel.h"
 
 #include "errno.h"
+#include "fcntl.h"
 #include "file.h"
 #include "fs.h"
 #include "page.h"
 #include "process.h"
-#include "stdio.h"
 #include "stdlib.h"
+#include "string.h"
 #include "syscall.h"
 #include "virtio.h"
+
+#include <stdarg.h>
 
 #define SCAUSE_ECALL (8)
 
@@ -56,17 +59,127 @@ void putchar(const char ch) {
   sbi_call((long)ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
 }
 
-void klog_putchar(char ch) {
+void kputc(char ch) {
   if (kmesg_len < KMESG_SIZE - 1) {
     kmesg_buf[kmesg_len++] = ch;
     kmesg_buf[kmesg_len] = '\0';
   }
 }
 
+void vprintf(const char *fmt, va_list vargs) {
+  while (*fmt) {
+    if (*fmt == '%') {
+      ++fmt;
+      bool left_align = false;
+      if (*fmt == '-') {
+        left_align = true;
+        ++fmt;
+      }
+
+      int width = 0;
+      if (*fmt == '*') {
+        width = va_arg(vargs, int);
+        ++fmt;
+      }
+
+      switch (*fmt) {
+      case '\0':
+        kputc('%');
+        return;
+      case '%':
+        kputc('%');
+        break;
+      case 's': {
+        const char *s = va_arg(vargs, const char *);
+        int len = strlen(s);
+        int pad = width - len;
+
+        if (!left_align) {
+          for (int i = 0; i < pad; i++) {
+            kputc(' ');
+          }
+        }
+
+        while (*s) {
+          kputc(*s);
+          ++s;
+        }
+
+        if (left_align) {
+          for (int i = 0; i < pad; i++) {
+            kputc(' ');
+          }
+        }
+        break;
+      }
+      case 'd': {
+        int value = va_arg(vargs, int);
+        unsigned mag = value;
+        int len = 0;
+
+        if (value < 0) {
+          ++len; // For '-'
+          mag = -mag;
+        }
+
+        unsigned temp = mag;
+        if (temp == 0) {
+          ++len;
+        } else {
+          while (temp > 0) {
+            ++len;
+            temp /= 10;
+          }
+        }
+
+        int pad = width - len;
+        if (!left_align) {
+          for (int i = 0; i < pad; ++i) {
+            kputc(' ');
+          }
+        }
+
+        if (value < 0) {
+          kputc('-');
+        }
+
+        unsigned div = 1;
+        while (mag / div > 9)
+          div *= 10;
+
+        while (div > 0) {
+          kputc('0' + mag / div);
+          mag %= div;
+          div /= 10;
+        }
+
+        if (left_align) {
+          for (int i = 0; i < pad; i++) {
+            kputc(' ');
+          }
+        }
+        break;
+      }
+      case 'x': {
+        unsigned val = va_arg(vargs, unsigned);
+        for (int i = 7; i >= 0; --i) {
+          unsigned nibble = (val >> (i * 4)) & 0xf;
+          kputc("0123456789abcdef"[nibble]);
+        }
+        break;
+      }
+      }
+    } else {
+      kputc(*fmt);
+    }
+    ++fmt;
+  }
+}
+
 void kprintf(const char *fmt, ...) {
   va_list vargs;
   va_start(vargs, fmt);
-  vprintf(klog_putchar, fmt, vargs);
+  vprintf(fmt, vargs);
   va_end(vargs);
 }
 
@@ -216,7 +329,7 @@ void handle_syscall(struct trap_frame *f) {
     yield();
     break;
   case SYSCALL_EXIT:
-    exit_current_process();
+    exit_current_process(f->a0);
     // TODO: unmap and deallocate pages.
     yield();
     PANIC("unreachable");
@@ -228,7 +341,7 @@ void handle_syscall(struct trap_frame *f) {
       kprintf("open: invalid path pointer\n");
       f->a0 = ERR_INVALID_ARGUMENT;
     } else {
-      if (flags & O_CREATE) {
+      if (flags & O_CREAT) {
         f->a0 = fs_create(path, flags);
       } else {
         f->a0 = fs_open(path, flags);
@@ -263,6 +376,12 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_CLOSE: {
     int fd = f->a0;
     f->a0 = fs_close(fd);
+    break;
+  }
+  case SYSCALL_FTRUNCATE: {
+    int fd = f->a0;
+    int length = f->a1;
+    f->a0 = fs_ftruncate(fd, length);
     break;
   }
   case SYSCALL_GET_FILE_NAME: {
@@ -543,25 +662,22 @@ void kmain(void) {
   // Tell the CPU where the exception handler is
   WRITE_CSR(stvec, (uint32_t)kentry);
 
-  // Clear the screen of any bios messages.
-  printf("\033[2J\033[3J\033[H");
-
   kprintf("dmaOS kernel boot started\n");
 
   kprintf("Initializing VirtIO block device\n");
   virtio_blk_init();
-  kprintf(RALIGN GREEN "[VirtIO initialized]\n" DEFAULT);
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing file system\n");
   file_init();
   fs_init();
-  kprintf(RALIGN GREEN "[File system initialized]\n" DEFAULT);
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing process scheduler\n");
   process_init();
-  kprintf(RALIGN GREEN "[Process scheduler initialized]\n" DEFAULT);
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
-  printf("dmaos boot complete\n");
+  kprintf(BOLD YELLOW "Boot complete\n" DEFAULT);
 
   kprintf("Spawning shell process\n");
   create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
@@ -598,7 +714,7 @@ void handle_trap(struct trap_frame *f) {
     kprintf(RED
             "Process %d (%s) crashed: scause %x, stval %x, sepc %x\n" DEFAULT,
             proc->pid, proc->name, scause, stval, user_pc);
-    exit_current_process();
+    exit_current_process(1);
     yield();
   } else {
     kprintf("TRAP REGISTERS:\n");

@@ -11,6 +11,7 @@ enum ProcState { PROCSTATE_UNUSED, PROCSTATE_RUNNABLE, PROCSTATE_EXITED };
 struct Process {
   int pid;
   enum ProcState state;
+  int exit_code;
   vaddr_t sp;
   uint32_t *page_table;
   struct inode *cwd;
@@ -27,7 +28,7 @@ void process_init();
 struct Process *create_process(const void *image, size_t image_size, int argc,
                                char **argv);
 struct Process *get_current_process(void);
-void exit_current_process();
+void exit_current_process(int exit_code);
 void yield();
 int spawn_process(const char *filename);
 int wait_process(int pid);

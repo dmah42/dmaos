@@ -34,6 +34,7 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
   - `mkdir` - create persistent directories (restricted to `/home`).
   - `write` - write/append text strings to a file (always appends; restricted to `/home`).
   - `rm` - remove files and empty directories (restricted to `/home`).
+  - `kilo` - externally developed interactive terminal text editor using ANSI escape sequences.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
 
@@ -86,8 +87,9 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
-- [ ] **Interactive Text Editor**:
-  - Port or write a simple command-line text editor (e.g., a clone of `pico`/`nano`) using ANSI escape sequences to create and edit files interactively in `/home`.
+- [ ] **Standard C Library Integration (Newlib)**:
+  - Replace the custom, homegrown user-space standard library (`user/lib`) with standard **Newlib**.
+  - Map Newlib's standard system call stubs (like `_read`, `_write`, `_open`, `_close`, `_sbrk`, and `_stat`) to our kernel ABI using a defensive translation layer in `user/lib` to maintain decoupling.
 
 - [ ] **Standard Streams & Shell Piping**:
   - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers to enable shell command pipelines (e.g., `cat file.txt | grep query`).

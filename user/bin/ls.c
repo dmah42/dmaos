@@ -1,3 +1,4 @@
+#include "fcntl.h"
 #include "fs_shared.h"
 #include "stdio.h"
 #include "stdlib.h"
@@ -114,7 +115,7 @@ int main(int argc, char **argv) {
   // Print target directory directory header
   printf("Directory of %s\n", target_path);
 
-  int fd = open(target_path, O_READ);
+  int fd = open(target_path, O_RDONLY);
   if (fd < 0) {
     printf("ls: '%s': %s\n", target_path, strerror(fd));
     return 1;

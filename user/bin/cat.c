@@ -38,22 +38,19 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int fd = open(filename, O_READ);
-  if (fd < 0) {
-    printf("cat: '%s': %s\n", filename, strerror(fd));
+  FILE *f = fopen(filename, "r");
+  if (f == NULL) {
+    printf("cat: '%s': %s\n", filename, strerror(-errno));
     return 1;
   }
 
-  char buf[FS_CHUNK_SIZE + 1];
-  int read_bytes;
-  while ((read_bytes = read(fd, buf, FS_CHUNK_SIZE)) > 0) {
-    buf[read_bytes] = '\0';
-    printf("%s", buf);
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t nread;
+  while ((nread = getline(&line, &len, f)) != -1) {
+    printf("%s", line);
   }
-  close(fd);
-  if (read_bytes < 0) {
-    printf("\ncat: error reading '%s': %s\n", filename, strerror(read_bytes));
-    return 1;
-  }
+  free(line);
+  fclose(f);
   return 0;
 }

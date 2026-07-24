@@ -1,8 +1,11 @@
 #include "process.h"
+#include "fcntl.h"
+#include "file.h"
 
 #include "fs.h"
 #include "kernel.h"
 #include "page.h"
+#include "string.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];
@@ -36,6 +39,24 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   memset(proc->ofile, 0, sizeof(proc->ofile));
+
+  if (image != NULL || argc > 0) {
+    struct File *f0 = file_create(FD_CONSOLE, O_RDONLY);
+    struct File *f1 = file_create(FD_CONSOLE, O_WRONLY);
+    struct File *f2 = file_create(FD_CONSOLE, O_WRONLY);
+    if (f0 && f1 && f2) {
+      proc->ofile[0] = f0;
+      proc->ofile[1] = f1;
+      proc->ofile[2] = f2;
+    } else {
+      if (f0)
+        file_close(f0);
+      if (f1)
+        file_close(f1);
+      if (f2)
+        file_close(f2);
+    }
+  }
 
   if (current_proc != NULL && current_proc->cwd != NULL) {
     proc->cwd = iget(current_proc->cwd->dev, current_proc->cwd->inum);
@@ -170,9 +191,11 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   return proc;
 }
 
-void exit_current_process() {
-  kprintf(YELLOW "Process exited: PID=%d\n" DEFAULT, current_proc->pid);
+void exit_current_process(int exit_code) {
+  kprintf(YELLOW "Process exited: PID=%d with exit code %d\n" DEFAULT,
+          current_proc->pid, exit_code);
   current_proc->state = PROCSTATE_EXITED;
+  current_proc->exit_code = exit_code;
 }
 
 void free_process_pages(struct Process *proc) {

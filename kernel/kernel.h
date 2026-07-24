@@ -1,6 +1,5 @@
 #pragma once
 
-#include "stdio.h" // IWYU pragma: keep
 #include <stdint.h>
 
 struct sbiret {
@@ -60,9 +59,9 @@ void kprintf(const char *fmt, ...);
 
 #define PANIC(fmt, ...)                                                        \
   do {                                                                         \
-    printf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                         \
-    printf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);             \
-    printf("---\n");                                                           \
+    kprintf("+++ WHOOPS!  HERE COMES MR JELLY! +++\n");                        \
+    kprintf("%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);            \
+    kprintf("---\n");                                                          \
     dump_kmesg(1024);                                                          \
     shutdown();                                                                \
   } while (0)

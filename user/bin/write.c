@@ -1,6 +1,5 @@
-#include "fs_shared.h"
+#include "errno.h"
 #include "stdio.h"
-#include "user.h"
 
 int main(int argc, char **argv) {
   if (argc < 3) {
@@ -31,17 +30,16 @@ int main(int argc, char **argv) {
     }
   }
 
-  int fd = open(filename, O_WRITE | O_CREATE | O_APPEND);
-  if (fd < 0) {
-    printf("write: failed to open file '%s': %s\n", filename, strerror(fd));
+  FILE *f = fopen(filename, "a");
+  if (f == NULL) {
+    printf("write: failed to open file '%s': %s\n", filename, strerror(-errno));
     return 1;
   }
 
-  int ret = write(fd, buf, strlen(buf));
-  close(fd);
+  int ret = fprintf(f, "%s", buf);
+  fclose(f);
   if (ret < 0) {
-    printf("write: failed to write to file '%s': %s\n", filename,
-           strerror(ret));
+    printf("write: failed to write to file '%s'\n", filename);
     return 1;
   }
   return 0;

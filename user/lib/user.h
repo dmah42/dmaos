@@ -2,13 +2,10 @@
 
 #include "stdlib.h"
 
-__attribute__((noreturn)) void exit(void);
-
 void putchar(char ch);
 int getchar(void);
 int getchar_nonblock(void);
 
-int open(const char *path, int flags);
 int read(int fd, void *buf, int n);
 int write(int fd, const void *buf, int n);
 int close(int fd);
@@ -28,3 +25,5 @@ int chdir(const char *path);
 int mkdir(const char *path);
 
 void *sbrk(int increment);
+
+int ftruncate(int fd, int length);

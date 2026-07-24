@@ -11,6 +11,12 @@ enum Errno {
   ERR_NOT_A_DIRECTORY = -20,
   ERR_IS_A_DIRECTORY = -21,
   ERR_INVALID_ARGUMENT = -22,
+  ERR_NO_TTY = -25,
   ERR_NO_SPACE = -28,
   ERR_DIRECTORY_NOT_EMPTY = -39,
 };
+
+extern int errno;
+
+#define ENOENT (-ERR_NOT_FOUND)
+#define ENOTTY (-ERR_NO_TTY)
