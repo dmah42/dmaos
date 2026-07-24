@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdlib.h"
+#include <stdint.h>
 
 #define NUM_FILES_PER_PROCESS 16
 #define GLOBAL_OPEN_FILE_LIMIT 64

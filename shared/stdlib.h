@@ -1,17 +1,12 @@
 #pragma once
 
-typedef int bool;
-
 #include <stdint.h>
+
+typedef int bool;
 
 typedef uint32_t size_t;
 typedef uint32_t paddr_t;
 typedef uint32_t vaddr_t;
-
-struct stat {
-  int type;
-  int size;
-};
 
 #define true (1)
 #define false (0)
@@ -47,17 +42,25 @@ struct stat {
 #define va_end __builtin_va_end
 #define va_arg __builtin_va_arg
 
+struct stat {
+  int type;
+  int size;
+};
+
+void *malloc(size_t size);
+void free(void *ptr);
+void *calloc(size_t nmemb, size_t size);
+void *realloc(void *ptr, size_t size);
+
 void *memset(void *buf, char c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
+
 int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, size_t n);
 size_t strlen(const char *s);
 char *strncpy(char *dst, const char *src, size_t n);
 char *strncat(char *dst, const char *src, size_t n);
 char *strchr(const char *s, int c);
-
-void printf(const char *fmt, ...);
-void vprintf(void (*putc)(char), const char *fmt, va_list vargs);
 
 void srand(uint32_t seed);
 uint32_t rand(void);

@@ -1,6 +1,7 @@
-#include "memory.h"
+#include "stdlib.h"
 
 #include "errno.h"
+#include "stdio.h"
 #include "user.h"
 
 // Header/footer size (bytes)

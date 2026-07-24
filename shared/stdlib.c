@@ -1,5 +1,7 @@
 #include "stdlib.h"
+
 #include "errno.h"
+#include "stdio.h"
 
 void putchar(char);
 void yield(void);

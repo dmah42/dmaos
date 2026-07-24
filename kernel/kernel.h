@@ -1,6 +1,7 @@
 #pragma once
 
-#include "stdlib.h"
+#include "stdio.h" // IWYU pragma: keep
+#include <stdint.h>
 
 struct sbiret {
   long error;

@@ -1,0 +1,10 @@
+[project]
+name = "dmaos"
+version = "0.1.0"
+description = "dmaOS guest operating system and tools"
+dependencies = [
+    "compiledb>=0.10.1"
+]
+
+[tool.setuptools]
+packages = []

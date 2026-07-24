@@ -5,6 +5,7 @@
 #include "fs.h"
 #include "page.h"
 #include "process.h"
+#include "stdio.h"
 #include "stdlib.h"
 #include "syscall.h"
 #include "virtio.h"

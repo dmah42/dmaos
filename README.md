@@ -63,6 +63,27 @@ brew install llvm qemu
 
 ---
 
+## IDE Integration (Autocomplete & Diagnostics)
+
+To configure VS Code and C/C++ language servers (like `clangd` or the Microsoft C/C++ extension) to accurately parse compiler paths, definitions, and targets for both the host tools and guest RISC-V targets:
+
+1. **Set up a Python Virtual Environment**:
+   ```bash
+   python3 -m venv .venv
+   . .venv/bin/activate
+   ```
+2. **Install the development dependencies**:
+   ```bash
+   pip install .
+   ```
+3. **Generate the compilation database**:
+   ```bash
+   compiledb make
+   ```
+This generates a `compile_commands.json` database at the workspace root, which the editor automatically loads to configure autocomplete and diagnostics. Run `compiledb make -n` (or `compiledb make` during a build) whenever directories, target flags, or C files are added or modified.
+
+---
+
 ## Future Roadmap (TODOs)
 
 - [ ] **Interactive Text Editor**:

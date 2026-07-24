@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdlib.h"
+#include <stdint.h>
 
 #define SECTOR_SIZE 512
 #define VIRTIO_BLK0_PADDR 0x10001000

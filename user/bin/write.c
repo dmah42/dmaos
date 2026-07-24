@@ -1,4 +1,5 @@
-#include "stdlib.h"
+#include "fs_shared.h"
+#include "stdio.h"
 #include "user.h"
 
 int main(int argc, char **argv) {
@@ -39,7 +40,8 @@ int main(int argc, char **argv) {
   int ret = write(fd, buf, strlen(buf));
   close(fd);
   if (ret < 0) {
-    printf("write: failed to write to file '%s': %s\n", filename, strerror(ret));
+    printf("write: failed to write to file '%s': %s\n", filename,
+           strerror(ret));
     return 1;
   }
   return 0;

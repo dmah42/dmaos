@@ -1,8 +1,10 @@
 /bin/*
 /build/*
 *.bin
+*.egg-info
 *.elf
 *.img
 *.log
 *.map
 *.o
+compile_commands.json

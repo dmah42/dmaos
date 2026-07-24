@@ -1,6 +1,5 @@
 #pragma once
 
-#include "fs_shared.h"
 #include "stdlib.h"
 
 __attribute__((noreturn)) void exit(void);
