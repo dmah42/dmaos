@@ -121,13 +121,13 @@ int main(int argc, char **argv) {
   char chunk[FS_CHUNK_SIZE];
   int read_bytes;
 
-  struct dirent entries[MAX_DIR_ENTRIES];
+  struct fsdirent entries[MAX_DIR_ENTRIES];
   struct stat stats[MAX_DIR_ENTRIES];
   int entry_count = 0;
 
   while ((read_bytes = read(fd, chunk, FS_CHUNK_SIZE)) > 0) {
-    for (int i = 0; i < read_bytes; i += sizeof(struct dirent)) {
-      struct dirent *de = (struct dirent *)(chunk + i);
+    for (int i = 0; i < read_bytes; i += sizeof(struct fsdirent)) {
+      struct fsdirent *de = (struct fsdirent *)(chunk + i);
       if (de->inum == 0) {
         continue;
       }

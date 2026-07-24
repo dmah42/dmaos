@@ -7,46 +7,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-// NOTE: keep these in sync with fs.h
-#define BSIZE 1024
-
-#define XV6_FS_MAGIC 0x10203040
-
-#define MAX_DIR_ENTRIES 64
-#define DIRSIZ 30
-#define NDIRECT 12
-#define NINDIRECT (BSIZE / sizeof(uint32_t)) // 256
-#define MAXFILE (NDIRECT + NINDIRECT)
-
-enum FileType {
-  FT_UNUSED = 0,
-  FT_DIRECTORY = 1,
-  FT_FILE = 2,
-};
-
-struct dinode {
-  uint16_t type;               // File type (FS_UNUSED, FS_DIR, FS_FILE)
-  uint16_t major;              // Unused
-  uint16_t minor;              // Unused
-  uint16_t nlink;              // Number of links to inode
-  uint32_t size;               // Size of file (bytes)
-  uint32_t addrs[NDIRECT + 1]; // Data block addresses
-};
-
-struct superblock {
-  uint32_t magic;      // Must be XV6_FS_MAGIC
-  uint32_t size;       // Size of file system image (blocks)
-  uint32_t nblocks;    // Number of data blocks
-  uint32_t ninodes;    // Number of inodes
-  uint32_t inodestart; // Block number of first inode block
-  uint32_t bmapstart;  // Block number of first free map block
-};
-
-struct fsdirent {
-  uint16_t inum;
-  char name[DIRSIZ];
-};
-// END NOTE
+#include "fs_shared.h"
 
 #define SECTOR_SIZE 512
 #define DISK_SIZE_BLOCKS 1024 // 512 KB total size
@@ -241,7 +202,7 @@ void add_file(const char *host_path, const char *fs_path,
     } else {
       uint32_t indirect_idx = block_index - NDIRECT;
       if (indirect_idx >= NINDIRECT) {
-        fprintf(stderr, "error: file '%s' too large (max %zu bytes)\n",
+        fprintf(stderr, "error: file '%s' too large (max %d bytes)\n",
                 file_part, MAXFILE * BSIZE);
         fclose(f);
         exit(1);

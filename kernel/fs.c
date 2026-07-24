@@ -182,7 +182,7 @@ static struct inode *dirlookup(struct inode *dp, const char *name,
   }
   ilock(dp);
 
-  struct dirent de;
+  struct fsdirent de;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       kprintf("dirlookup: readi failed reading directory entries of inum %d\n",
@@ -363,7 +363,7 @@ int fs_get_file_name(int index, char *buf, int buf_len) {
   }
   ilock(dp);
 
-  struct dirent de;
+  struct fsdirent de;
   int current_index = 0;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
@@ -404,7 +404,7 @@ int fs_get_file_size(int index) {
   }
   ilock(dp);
 
-  struct dirent de;
+  struct fsdirent de;
   int current_index = 0;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
@@ -747,7 +747,7 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
   }
 
   ilock(dp);
-  struct dirent de;
+  struct fsdirent de;
   uint32_t off;
   for (off = 0; off < dp->dinode.size; off += sizeof(de)) {
     if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
@@ -924,7 +924,7 @@ int fs_mkdir(const char *path) {
     return ERR_NO_SPACE;
   }
 
-  struct dirent dot;
+  struct fsdirent dot;
   memset(&dot, 0, sizeof(dot));
   dot.inum = ip->inum;
   strncpy(dot.name, ".", sizeof(dot.name) - 1);
@@ -934,7 +934,7 @@ int fs_mkdir(const char *path) {
     return ERR_NO_SPACE;
   }
 
-  struct dirent dotdot;
+  struct fsdirent dotdot;
   memset(&dotdot, 0, sizeof(dotdot));
   dotdot.inum = dp->inum;
   strncpy(dotdot.name, "..", sizeof(dotdot.name) - 1);
@@ -957,7 +957,7 @@ int fs_mkdir(const char *path) {
 }
 
 static bool is_dir_empty(struct inode *ip) {
-  struct dirent de;
+  struct fsdirent de;
   for (uint32_t off = 0; off < ip->dinode.size; off += sizeof(de)) {
     if (readi(ip, (char *)&de, off, sizeof(de)) != sizeof(de)) {
       return false;
@@ -1006,7 +1006,7 @@ int fs_rm(const char *path) {
     }
   }
 
-  struct dirent de;
+  struct fsdirent de;
   memset(&de, 0, sizeof(de));
   if (writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
     kprintf("fs_rm: failed to clear directory entry\n");
