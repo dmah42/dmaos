@@ -102,7 +102,8 @@ disk.img: bin/mkfs $(addprefix $(BUILD_DIR)/root/, $(utxts)) $(addprefix $(BUILD
 	@mkdir -p $(BUILD_DIR)/root/home
 	bin/mkfs $@ $(BUILD_DIR)/root
 
-data.img: bin/mkfs
+data.img:
+	$(MAKE) bin/mkfs
 	bin/mkfs $@
 
 $(BUILD_DIR)/root/cfg/%: disk/%
