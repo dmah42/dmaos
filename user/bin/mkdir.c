@@ -1,5 +1,8 @@
-#include "stdio.h"
-#include "user.h"
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -13,9 +16,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int ret = mkdir(path);
+  int ret = mkdir(path, 0755);
   if (ret < 0) {
-    printf("mkdir: failed to create directory '%s': %s\n", path, strerror(ret));
+    printf("mkdir: failed to create directory '%s': %s\n", path,
+           strerror(errno));
     return 1;
   }
   return 0;

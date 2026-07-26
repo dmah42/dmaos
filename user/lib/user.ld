@@ -20,7 +20,6 @@ SECTIONS {
     __bss = .;
     *(.bss .bss.* .sbss .sbss.*);
     __bss_end = .;
-  
     . = ALIGN(16);
     . += 64 * 1024;  /* 64KB */
     __stack_top = .;

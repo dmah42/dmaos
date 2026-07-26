@@ -10,7 +10,7 @@
 #include "fs_shared.h"
 
 #define SECTOR_SIZE 512
-#define DISK_SIZE_BLOCKS 1024 // 512 KB total size
+#define DISK_SIZE_BLOCKS 2048 // 2 MB disks
 
 uint8_t disk[DISK_SIZE_BLOCKS * BSIZE];
 uint8_t free_bitmap[BSIZE]; // 1 block for bitmap is plenty (8192 bits)

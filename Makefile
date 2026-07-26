@@ -7,6 +7,13 @@ cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
           -fno-stack-protector -ffreestanding -fno-builtin
 ldflags := -fuse-ld=lld
 
+SYSROOT := third_party/newlib
+user_cflags := $(cflags) -isystem $(SYSROOT)/include \
+               -include user/lib/user.h \
+							 -ffunction-sections -fdata-sections -flto \
+               -D_POSIX_C_SOURCE=200809L
+user_ldflags := $(ldflags) -Wl,--gc-sections -s -flto
+
 host_cflags := -std=c11 -O2 -Wall -Wextra -Werror
 
 qflags := -machine virt -bios default -nographic \
@@ -36,39 +43,32 @@ all: kernel.elf disk.img data.img
 
 # ----------------- Kernel -----------------
 
-KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, kernel.o fs.o page.o process.o virtio.o file.o)
-SHARED_OBJS := $(addprefix $(BUILD_DIR)/shared/, stdlib.o)
+KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, kernel.o fs.o page.o process.o virtio.o file.o stdlib.o)
 
-kernel.elf: $(KERNEL_OBJS) $(SHARED_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
-	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map -o $@ $(KERNEL_OBJS) $(SHARED_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o
+kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
+	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(cc) $(cflags) -I$(KERNEL_DIR) -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-# ----------------- Shared -----------------
-
-$(BUILD_DIR)/shared/%.o: $(SHARED_DIR)/%.c
-	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
-
 # ----------------- User Library -----------------
 
-USER_LIB_OBJS := $(addprefix $(BUILD_DIR)/user/lib/, user.o memory.o stdio.o unistd.o termios.o ioctl.o signal.o time.o)
+USER_LIB_OBJS := $(addprefix $(BUILD_DIR)/user/lib/, user.o)
 
 $(BUILD_DIR)/user/lib/%.o: $(USER_DIR)/lib/%.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
 # ----------------- Shell -----------------
 
 $(BUILD_DIR)/user/sh/shell.o: $(USER_DIR)/sh/shell.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-$(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(SHARED_OBJS) $(USER_DIR)/lib/user.ld
+$(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) $(ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/sh/shell.map -o $@ $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(SHARED_OBJS)
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/sh/shell.map -o $@ $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/user/sh/shell.bin: $(BUILD_DIR)/user/sh/shell.elf
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
@@ -80,15 +80,15 @@ $(BUILD_DIR)/user/sh/shell.bin.o: $(BUILD_DIR)/user/sh/shell.bin
 
 $(BUILD_DIR)/user/bin/kilo.o: third_party/kilo/kilo.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(user_cflags) -Wno-char-subscripts -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
 $(BUILD_DIR)/user/bin/%.o: $(USER_DIR)/bin/%.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -I$(USER_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-$(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(SHARED_OBJS) $(USER_DIR)/lib/user.ld
+$(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) $(ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/$*.map -o $@ $(filter %.o, $^)
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/$*.map -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/root/bin/%: $(BUILD_DIR)/user/elf/%.elf
 	@mkdir -p $(dir $@)

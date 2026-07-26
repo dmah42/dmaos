@@ -1,6 +1,8 @@
-#include "stdio.h"
-#include "stdlib.h"
 #include "user.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define WIDTH 32
 #define HEIGHT 16

@@ -1,8 +1,15 @@
-#include "fcntl.h"
+#include "colors.h"
 #include "fs_shared.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "user.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#define FS_CHUNK_SIZE (512)
 
 int num_digits(int n) {
   if (n == 0)
@@ -106,9 +113,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (st.type != FT_DIRECTORY) {
+  if (!S_ISDIR(st.st_mode)) {
     // If it's a file, just list it
-    printf("  %s %db\n", target_path, st.size);
+    printf("  %s %db\n", target_path, (int)st.st_size);
     return 0;
   }
 
@@ -117,7 +124,7 @@ int main(int argc, char **argv) {
 
   int fd = open(target_path, O_RDONLY);
   if (fd < 0) {
-    printf("ls: '%s': %s\n", target_path, strerror(fd));
+    printf("ls: '%s': %s\n", target_path, strerror(errno));
     return 1;
   }
 
@@ -170,13 +177,13 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < entry_count; i++) {
     size_t len = strlen(entries[i].name);
-    if (stats[i].type == FT_DIRECTORY) {
+    if (S_ISDIR(stats[i].st_mode)) {
       len += 1; // for trailing '/'
     }
     if (len > longest_name) {
       longest_name = len;
     }
-    int digits = num_digits(stats[i].size);
+    int digits = num_digits((int)stats[i].st_size);
     if (digits > longest_size_len) {
       longest_size_len = digits;
     }
@@ -184,7 +191,7 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < entry_count; i++) {
     int visible_len = strlen(entries[i].name);
-    if (stats[i].type == FT_DIRECTORY) {
+    if (S_ISDIR(stats[i].st_mode)) {
       ++visible_len;
       printf("  " BOLD YELLOW "%s/" DEFAULT, entries[i].name);
     } else {
@@ -196,7 +203,7 @@ int main(int argc, char **argv) {
       putchar(' ');
     }
 
-    printf(" %*db\n", longest_size_len, stats[i].size);
+    printf(" %*db\n", longest_size_len, (int)stats[i].st_size);
   }
 
   return 0;

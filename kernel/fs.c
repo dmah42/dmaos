@@ -1,13 +1,16 @@
 #include "fs.h"
 
-#include "errno.h"
-#include "fcntl.h"
+#include "k_errno.h"
+#include "k_fcntl.h"
 #include "file.h"
 #include "kernel.h"
 #include "process.h"
 #include "stdlib.h"
-#include "string.h"
 #include "virtio.h"
+
+#define NINODE (50)
+#define SECTORS_PER_BLOCK (2)
+#define MAX_PATH_DEPTH (32)
 
 static struct superblock sb[2];
 static struct inode inode_table[NINODE];
@@ -451,7 +454,7 @@ uint32_t fs_get_inode_size(struct inode *ip) {
 /*
  * Populates a stat structure for a path.
  */
-int fs_stat(const char *path, struct stat *st) {
+int fs_stat(const char *path, struct k_stat *st) {
   struct inode *ip = namei(path);
   if (ip == NULL) {
     return ERR_NOT_FOUND;
@@ -780,9 +783,9 @@ static int alloc_file_descriptor(struct inode *ip, int flags) {
 
   f->type = FD_INODE;
   f->ip = ip;
-  f->readable = (flags & O_RDONLY) != 0;
-  f->writable = (flags & O_WRONLY) != 0;
-  f->off = (flags & O_APPEND) ? ip->dinode.size : 0;
+  f->readable = (flags & FILECTRL_READONLY) != 0;
+  f->writable = (flags & FILECTRL_WRITEONLY) != 0;
+  f->off = (flags & FILECTRL_APPEND) ? ip->dinode.size : 0;
 
   struct Process *proc = get_current_process();
   for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
@@ -805,7 +808,7 @@ int fs_create(const char *path, int flags) {
     return ERR_NOT_FOUND;
   }
 
-  if (dp->dev == 0 && (flags & (O_WRONLY | O_CREAT | O_TRUNC | O_APPEND))) {
+  if (dp->dev == 0 && (flags & (FILECTRL_WRITEONLY | FILECTRL_CREATE | FILECTRL_TRUNCATE | FILECTRL_APPEND))) {
     kprintf("fs_create: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
     return ERR_PERMISSION_DENIED;
@@ -827,7 +830,7 @@ int fs_create(const char *path, int flags) {
     }
   } else {
     ilock(ip);
-    if ((flags & O_TRUNC) && (ip->dinode.type == FT_FILE)) {
+    if ((flags & FILECTRL_TRUNCATE) && (ip->dinode.type == FT_FILE)) {
       itrunc(ip, 0);
     }
   }
@@ -862,13 +865,13 @@ int fs_open(const char *path, int flags) {
   }
   ilock(ip);
 
-  if (ip->dev == 0 && (flags & (O_WRONLY | O_TRUNC))) {
+  if (ip->dev == 0 && (flags & (FILECTRL_WRITEONLY | FILECTRL_TRUNCATE))) {
     kprintf("fs_open: write access denied on dev %d (read-only)\n", ip->dev);
     iput(ip);
     return ERR_PERMISSION_DENIED;
   }
 
-  if ((flags & O_TRUNC) && (ip->dinode.type == FT_FILE)) {
+  if ((flags & FILECTRL_TRUNCATE) && (ip->dinode.type == FT_FILE)) {
     itrunc(ip, 0);
   }
 
@@ -950,6 +953,33 @@ int fs_close(int fd) {
   proc->ofile[fd] = NULL;
   file_close(f);
   return 0;
+}
+
+int fs_lseek(int fd, int offset, int whence) {
+  struct Process *proc = get_current_process();
+  if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
+    return ERR_BAD_FILE;
+  }
+  struct File *f = proc->ofile[fd];
+  if (f->ip == NULL) {
+    return ERR_BAD_FILE;
+  }
+  int size = f->ip->dinode.size;
+  int new_off = f->off;
+  if (whence == 0) { // SEEK_SET
+    new_off = offset;
+  } else if (whence == 1) { // SEEK_CUR
+    new_off += offset;
+  } else if (whence == 2) { // SEEK_END
+    new_off = size + offset;
+  } else {
+    return ERR_INVALID_ARGUMENT;
+  }
+  if (new_off < 0) {
+    return ERR_INVALID_ARGUMENT;
+  }
+  f->off = new_off;
+  return new_off;
 }
 
 int fs_ftruncate(int fd, int length) {

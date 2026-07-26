@@ -1,5 +1,6 @@
-#include "errno.h"
-#include "stdio.h"
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
 
 int main(int argc, char **argv) {
   if (argc < 3) {
@@ -32,7 +33,7 @@ int main(int argc, char **argv) {
 
   FILE *f = fopen(filename, "a");
   if (f == NULL) {
-    printf("write: failed to open file '%s': %s\n", filename, strerror(-errno));
+    printf("write: failed to open file '%s': %s\n", filename, strerror(errno));
     return 1;
   }
 

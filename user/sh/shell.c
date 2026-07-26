@@ -1,11 +1,16 @@
-#include "fcntl.h"
+#include "colors.h"
 #include "fs_shared.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
 #include "user.h"
+#include <fcntl.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define MAX_PATH_DIRS 32
+#define MAX_CMD_NAME (64)
 
 const char *path_dirs[MAX_PATH_DIRS];
 int num_path_dirs = 0;
@@ -213,7 +218,7 @@ void run_command(const char *cmdline) {
     strncat(full_path, cmd_name, sizeof(full_path) - strlen(full_path) - 1);
 
     struct stat st;
-    if (stat(full_path, &st) >= 0 && st.type == FT_FILE) {
+    if (stat(full_path, &st) >= 0 && S_ISREG(st.st_mode)) {
       // Reconstruct the cmdline: full_path + rest of cmdline arguments
       char new_cmdline[MAX_PATH];
       strncpy(new_cmdline, full_path, sizeof(new_cmdline) - 1);

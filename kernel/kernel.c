@@ -1,13 +1,14 @@
 #include "kernel.h"
 
-#include "errno.h"
-#include "fcntl.h"
+#include "colors.h"
 #include "file.h"
 #include "fs.h"
+#include "k_errno.h"
+#include "k_fcntl.h"
+#include "k_stat.h"
 #include "page.h"
 #include "process.h"
 #include "stdlib.h"
-#include "string.h"
 #include "syscall.h"
 #include "virtio.h"
 
@@ -341,7 +342,7 @@ void handle_syscall(struct trap_frame *f) {
       kprintf("open: invalid path pointer\n");
       f->a0 = ERR_INVALID_ARGUMENT;
     } else {
-      if (flags & O_CREAT) {
+      if (flags & FILECTRL_CREATE) {
         f->a0 = fs_create(path, flags);
       } else {
         f->a0 = fs_open(path, flags);
@@ -384,6 +385,10 @@ void handle_syscall(struct trap_frame *f) {
     f->a0 = fs_ftruncate(fd, length);
     break;
   }
+  case SYSCALL_LSEEK: {
+    f->a0 = fs_lseek(f->a0, f->a1, f->a2);
+    break;
+  }
   case SYSCALL_GET_FILE_NAME: {
     int index = f->a0;
     char *buf = (char *)f->a1;
@@ -401,9 +406,9 @@ void handle_syscall(struct trap_frame *f) {
     break;
   case SYSCALL_STAT: {
     const char *path = (const char *)f->a0;
-    struct stat *st = (struct stat *)f->a1;
+    struct k_stat *st = (struct k_stat *)f->a1;
     if (!validate_user_string(path) ||
-        !validate_user_write_buffer(st, sizeof(struct stat))) {
+        !validate_user_write_buffer(st, sizeof(struct k_stat))) {
       kprintf("stat: invalid pointer(s)\n");
       f->a0 = ERR_INVALID_ARGUMENT;
     } else {

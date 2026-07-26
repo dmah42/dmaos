@@ -1,5 +1,7 @@
-#include "stdio.h"
-#include "user.h"
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -13,9 +15,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int ret = rm(path);
+  int ret = unlink(path);
   if (ret < 0) {
-    printf("rm: failed to remove '%s': %s\n", path, strerror(ret));
+    printf("rm: failed to remove '%s': %s\n", path, strerror(errno));
     return 1;
   }
   return 0;

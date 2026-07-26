@@ -1,11 +1,11 @@
 #include "process.h"
-#include "fcntl.h"
-#include "file.h"
 
+#include "colors.h"
+#include "k_fcntl.h"
+#include "file.h"
 #include "fs.h"
 #include "kernel.h"
 #include "page.h"
-#include "string.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];
@@ -41,9 +41,9 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   memset(proc->ofile, 0, sizeof(proc->ofile));
 
   if (image != NULL || argc > 0) {
-    struct File *f0 = file_create(FD_CONSOLE, O_RDONLY);
-    struct File *f1 = file_create(FD_CONSOLE, O_WRONLY);
-    struct File *f2 = file_create(FD_CONSOLE, O_WRONLY);
+    struct File *f0 = file_create(FD_CONSOLE, FILECTRL_READONLY);
+    struct File *f1 = file_create(FD_CONSOLE, FILECTRL_WRITEONLY);
+    struct File *f2 = file_create(FD_CONSOLE, FILECTRL_WRITEONLY);
     if (f0 && f1 && f2) {
       proc->ofile[0] = f0;
       proc->ofile[1] = f1;

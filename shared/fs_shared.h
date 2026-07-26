@@ -2,6 +2,10 @@
 
 #include <stdint.h>
 
+#define MAX_FILENAME (128)
+#define MAX_PATH (256)
+#define MAX_PATH_DEPTH (32)
+
 #define BSIZE 1024
 
 #define XV6_FS_MAGIC 0x10203040
@@ -12,9 +16,6 @@
 
 #define MAX_DIR_ENTRIES 64
 #define DIRSIZ 30
-
-#define NINODE 50
-#define SECTORS_PER_BLOCK 2
 
 enum FileType {
   FT_UNUSED = 0,

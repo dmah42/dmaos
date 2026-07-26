@@ -1,5 +1,6 @@
-#include "stdio.h"
-#include "stdlib.h"
+#include "colors.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -12,7 +13,7 @@ int main(int argc, char **argv) {
     printf(RED "Test 1 failed: malloc returned NULL\n" DEFAULT);
     return 1;
   }
-  printf("p1 allocated at %x\n", p1);
+  printf("p1 allocated at %p\n", p1);
 
   for (int i = 0; i < 100; ++i) {
     p1[i] = i * i;
@@ -30,11 +31,11 @@ int main(int argc, char **argv) {
   void *a = malloc(128);
   void *b = malloc(256);
   void *c = malloc(64);
-  printf("Allocated a=%x, b=%x, c=%x\n", a, b, c);
+  printf("Allocated a=%p, b=%p, c=%p\n", a, b, c);
 
   free(b);               // Free middle block
   void *d = malloc(128); // Should fit in b's space
-  printf("Allocated d=%x (should be close to b)\n", d);
+  printf("Allocated d=%p (should be close to b)\n", d);
 
   free(a);
   free(d);
@@ -47,7 +48,7 @@ int main(int argc, char **argv) {
     printf(RED "Test 3 failed: large malloc returned NULL\n" DEFAULT);
     return 1;
   }
-  printf("Large block allocated at %x\n", large);
+  printf("Large block allocated at %p\n", large);
   free(large);
   printf(GREEN "Test 3 passed: Heap expansion\n" DEFAULT);
 

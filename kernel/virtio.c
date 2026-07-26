@@ -3,7 +3,6 @@
 #include "kernel.h"
 #include "page.h"
 #include "stdlib.h"
-#include "string.h"
 
 #define VIRTQ_ENTRY_NUM 16
 #define VIRTIO_DEVICE_BLK 2

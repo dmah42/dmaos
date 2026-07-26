@@ -1,9 +1,8 @@
 #include "file.h"
-#include "fcntl.h"
+#include "k_fcntl.h"
 
 #include "fs.h"
 #include "kernel.h"
-#include "string.h"
 
 struct File file_table[GLOBAL_OPEN_FILE_LIMIT];
 
@@ -30,8 +29,8 @@ struct File *file_create(enum FileDescType type, int flags) {
     return NULL;
   }
   f->type = type;
-  f->readable = (flags & O_RDONLY) != 0;
-  f->writable = (flags & O_WRONLY) != 0;
+  f->readable = (flags & FILECTRL_READONLY) != 0;
+  f->writable = (flags & FILECTRL_WRITEONLY) != 0;
   f->ip = NULL;
   f->off = 0;
   return f;

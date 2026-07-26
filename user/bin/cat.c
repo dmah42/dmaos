@@ -1,8 +1,9 @@
-#include "errno.h"
-#include "fs_shared.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "user.h"
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -30,24 +31,24 @@ int main(int argc, char **argv) {
   struct stat st;
   int ret = stat(filename, &st);
   if (ret < 0) {
-    printf("cat: '%s': %s\n", filename, strerror(ret));
+    printf("cat: '%s': %s\n", filename, strerror(errno));
     return 1;
   }
-  if (st.type == FT_DIRECTORY) {
-    printf("cat: '%s': %s\n", filename, strerror(ERR_IS_A_DIRECTORY));
+  if (S_ISDIR(st.st_mode)) {
+    printf("cat: '%s': %s\n", filename, strerror(EISDIR));
     return 1;
   }
 
   FILE *f = fopen(filename, "r");
   if (f == NULL) {
-    printf("cat: '%s': %s\n", filename, strerror(-errno));
+    printf("cat: '%s': %s\n", filename, strerror(errno));
     return 1;
   }
 
   char *line = NULL;
   size_t len = 0;
   ssize_t nread;
-  while ((nread = getline(&line, &len, f)) != -1) {
+  while ((nread = __getline(&line, &len, f)) != -1) {
     printf("%s", line);
   }
   free(line);
