@@ -8,6 +8,7 @@
 #include "k_stat.h"
 #include "page.h"
 #include "process.h"
+#include "ramfb.h"
 #include "stdlib.h"
 #include "syscall.h"
 #include "virtio.h"
@@ -660,6 +661,10 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
       "sret\n");
 }
 
+#define FB_WIDTH 640
+#define FB_HEIGHT 480
+uint32_t fb_ram[FB_WIDTH * FB_HEIGHT];
+
 void kmain(void) {
   // Clear BSS
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
@@ -676,6 +681,13 @@ void kmain(void) {
   kprintf("Initializing file system\n");
   file_init();
   fs_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing RAM framebuffer\n");
+  ramfb_init(fb_ram, FB_WIDTH, FB_HEIGHT);
+  for (int i = 0; i < FB_WIDTH * FB_HEIGHT; ++i) {
+    fb_ram[i] = 0x0000AAFF; // 0x00RRGGBB
+  }
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing process scheduler\n");
