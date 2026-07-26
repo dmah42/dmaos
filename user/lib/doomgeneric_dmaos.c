@@ -88,7 +88,11 @@ void I_UnRegisterSong(int handle) { (void)handle; }
 void doomgeneric_Create(int argc, char **argv);
 
 int main(int argc, char **argv) {
-  /* Initialize and hand off control to Doom! */
   doomgeneric_Create(argc, argv);
+  while (1) {
+    doomgeneric_Tick();
+
+    yield();
+  }
   return 0;
 }
