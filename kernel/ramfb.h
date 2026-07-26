@@ -1,5 +1,9 @@
 #pragma once
 
-#include <stdint.h>
+#include "stdint.h"
 
-void ramfb_init(uint32_t *buffer_ram, uint32_t width, uint32_t height);
+#define FB_WIDTH (1280)
+#define FB_HEIGHT (800)
+
+void ramfb_init();
+uint32_t *ramfb_get_buffer();

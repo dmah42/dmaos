@@ -48,25 +48,21 @@ typedef struct __attribute__((packed)) {
 #define bswap32(x) __builtin_bswap32(x)
 #define bswap64(x) __builtin_bswap64(x)
 
-/* Global Framebuffer Info */
-uint32_t *g_framebuffer = NULL;
-uint32_t g_fb_width = 640;
-uint32_t g_fb_height = 400;
+// Global Framebuffer Info
+uint32_t g_framebuffer[FB_WIDTH * FB_HEIGHT];
 
-void ramfb_init(uint32_t *buffer_ram, uint32_t width, uint32_t height) {
-  g_framebuffer = buffer_ram;
-  g_fb_width = width;
-  g_fb_height = height;
+void ramfb_init() {
+  memset(g_framebuffer, 0, FB_WIDTH * FB_HEIGHT);
 
-  /* 1. Find the selector for "etc/ramfb" */
+  // Find the selector for "etc/ramfb"
   *FW_CFG_SELECTOR = bswap16(FW_CFG_FILE_DIR);
 
-  /* Read count of files in directory */
+  // Read count of files in directory
   uint32_t file_count;
   file_count = bswap32(*(volatile uint32_t *)FW_CFG_DATA);
 
   uint16_t ramfb_select = 0;
-  for (uint32_t i = 0; i < file_count; i++) {
+  for (uint32_t i = 0; i < file_count; ++i) {
     FWCfgFile file;
     volatile uint8_t *data_ptr = (volatile uint8_t *)FW_CFG_DATA;
     uint8_t *out = (uint8_t *)&file;
@@ -85,15 +81,15 @@ void ramfb_init(uint32_t *buffer_ram, uint32_t width, uint32_t height) {
     return;
   }
 
-  /* 2. Fill out RamFBCfg in Big-Endian */
-  RamFBCfg cfg = {.addr = bswap64((uint64_t)(uintptr_t)buffer_ram),
+  // Fill out RamFBCfg in Big-Endian
+  RamFBCfg cfg = {.addr = bswap64((uint64_t)(uintptr_t)g_framebuffer),
                   .fourcc = bswap32(DRM_FORMAT_XRGB8888),
                   .flags = 0,
-                  .width = bswap32(width),
-                  .height = bswap32(height),
-                  .stride = bswap32(width * sizeof(uint32_t))};
+                  .width = bswap32(FB_WIDTH),
+                  .height = bswap32(FB_HEIGHT),
+                  .stride = bswap32(FB_WIDTH * sizeof(uint32_t))};
 
-  /* 3. Execute DMA Transfer to tell QEMU where the buffer is */
+  // Execute DMA Transfer to tell QEMU where the buffer is
   FWCfgDmaAccess dma = {.control = bswap32((ramfb_select << 16) |
                                            QEMU_CFG_DMA_CTL_SELECT |
                                            QEMU_CFG_DMA_CTL_WRITE),
@@ -109,3 +105,5 @@ void ramfb_init(uint32_t *buffer_ram, uint32_t width, uint32_t height) {
     __asm__ __volatile__("nop");
   }
 }
+
+uint32_t *ramfb_get_buffer() { return g_framebuffer; }

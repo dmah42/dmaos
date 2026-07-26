@@ -661,10 +661,6 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
       "sret\n");
 }
 
-#define FB_WIDTH 640
-#define FB_HEIGHT 480
-uint32_t fb_ram[FB_WIDTH * FB_HEIGHT];
-
 void kmain(void) {
   // Clear BSS
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
@@ -684,7 +680,8 @@ void kmain(void) {
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing RAM framebuffer\n");
-  ramfb_init(fb_ram, FB_WIDTH, FB_HEIGHT);
+  ramfb_init();
+  uint32_t *fb_ram = ramfb_get_buffer();
   for (int i = 0; i < FB_WIDTH * FB_HEIGHT; ++i) {
     fb_ram[i] = 0x0000AAFF; // 0x00RRGGBB
   }
