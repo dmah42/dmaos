@@ -440,3 +440,8 @@ int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) {
   (void)termios_p;
   return 0;
 }
+
+int input_poll(uint16_t *code, int *pressed) {
+  return handle_retval(
+      syscall2(SYSCALL_INPUT_POLL, (uint32_t)code, (uint32_t)pressed));
+}

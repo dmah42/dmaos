@@ -1,4 +1,6 @@
 #include "doomgeneric.h"
+
+#include "doomkeys.h"
 #include "user.h"
 #include <unistd.h>
 
@@ -19,8 +21,67 @@ void DG_SleepMs(uint32_t ms) { sleep_ms(ms); }
 
 uint32_t DG_GetTicksMs(void) { return (uint32_t)(uptime() / TICKS_PER_MS); }
 
+// Linux input event codes (reported by virtio-keyboard)
+#define INPUT_KEY_ESC 1
+#define INPUT_KEY_ENTER 28
+#define INPUT_KEY_SPACE 57
+#define INPUT_KEY_LEFTCTRL 29
+#define INPUT_KEY_A 30
+#define INPUT_KEY_S 31
+#define INPUT_KEY_D 32
+#define INPUT_KEY_W 17
+#define INPUT_KEY_Y 21
+#define INPUT_KEY_UP 103
+#define INPUT_KEY_LEFT 105
+#define INPUT_KEY_RIGHT 106
+#define INPUT_KEY_DOWN 108
+
+unsigned char doom_map_keycode(uint16_t hw_code) {
+  switch (hw_code) {
+  case INPUT_KEY_W:
+    return KEY_UPARROW;
+  case INPUT_KEY_S:
+    return KEY_DOWNARROW;
+  case INPUT_KEY_A:
+    return KEY_STRAFE_L;
+  case INPUT_KEY_D:
+    return KEY_STRAFE_R;
+  case INPUT_KEY_Y:
+    return 'y';
+  case INPUT_KEY_SPACE:
+    return KEY_USE;
+  case INPUT_KEY_LEFTCTRL:
+    return KEY_FIRE;
+  case INPUT_KEY_UP:
+    return KEY_UPARROW;
+  case INPUT_KEY_DOWN:
+    return KEY_DOWNARROW;
+  case INPUT_KEY_LEFT:
+    return KEY_LEFTARROW;
+  case INPUT_KEY_RIGHT:
+    return KEY_RIGHTARROW;
+  case INPUT_KEY_ENTER:
+    return KEY_ENTER;
+  case INPUT_KEY_ESC:
+    return KEY_ESCAPE;
+  default:
+    return 0;
+  }
+}
+
 int DG_GetKey(int *pressed, unsigned char *key) {
-  /* Return 0 for now (no key pressed) until keyboard driver is ready */
+  uint16_t hw_code;
+  int is_pressed;
+
+  // Pull raw hardware event from your kernel ring buffer via syscall
+  if (input_poll(&hw_code, &is_pressed)) {
+    unsigned char mapped_key = doom_map_keycode(hw_code);
+    if (mapped_key != 0) {
+      *pressed = is_pressed;
+      *key = mapped_key;
+      return 1;
+    }
+  }
   return 0;
 }
 

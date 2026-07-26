@@ -629,6 +629,21 @@ void handle_syscall(struct trap_frame *f) {
     f->a0 = 0;
     break;
   }
+  case SYSCALL_INPUT_POLL: {
+    uint16_t *codeptr = (uint16_t *)f->a0;
+    int *pressedptr = (int *)f->a1;
+    if (!validate_user_write_buffer(codeptr, sizeof(uint16_t)) ||
+        !validate_user_write_buffer(pressedptr, sizeof(int))) {
+      kprintf("input_poll: invalid buffer pointers\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+    if (virtio_input_poll_event(codeptr, pressedptr))
+      f->a0 = 1;
+    else
+      f->a0 = 0;
+    break;
+  }
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
@@ -723,8 +738,9 @@ void kmain(void) {
 
   kprintf("dmaOS kernel boot started\n");
 
-  kprintf("Initializing VirtIO block device\n");
+  kprintf("Initializing VirtIO devices\n");
   virtio_blk_init();
+  virtio_input_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing file system\n");

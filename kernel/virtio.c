@@ -6,9 +6,13 @@
 
 #define VIRTQ_ENTRY_NUM 16
 #define VIRTIO_DEVICE_BLK 2
+
 #define VIRTIO_REG_MAGIC 0x00
 #define VIRTIO_REG_VERSION 0x04
 #define VIRTIO_REG_DEVICE_ID 0x08
+#define VIRTIO_REG_DEVICE_STATUS 0x70
+#define VIRTIO_REG_DEVICE_CONFIG 0x100
+
 #define VIRTIO_REG_QUEUE_SEL 0x30
 #define VIRTIO_REG_QUEUE_NUM_MAX 0x34
 #define VIRTIO_REG_QUEUE_NUM 0x38
@@ -16,8 +20,6 @@
 #define VIRTIO_REG_QUEUE_PFN 0x40
 #define VIRTIO_REG_QUEUE_READY 0x44
 #define VIRTIO_REG_QUEUE_NOTIFY 0x50
-#define VIRTIO_REG_DEVICE_STATUS 0x70
-#define VIRTIO_REG_DEVICE_CONFIG 0x100
 
 #define VIRTIO_STATUS_ACK 1
 #define VIRTIO_STATUS_DRIVER 2
@@ -248,4 +250,108 @@ void virtio_blk_init_device(uint32_t dev, uint32_t paddr) {
 void virtio_blk_init() {
   virtio_blk_init_device(0, VIRTIO_BLK0_PADDR);
   virtio_blk_init_device(1, VIRTIO_BLK1_PADDR);
+}
+
+// Input driver (keyboard)
+#define VIRTIO_DEVICE_INPUT 18
+#define EV_KEY 0x01
+
+struct virtio_input_event {
+  uint16_t type;
+  uint16_t code;
+  uint32_t value;
+} __attribute__((packed));
+
+struct virtio_input_dev {
+  uint32_t paddr;
+  struct virtio_virtq *vq;
+  struct virtio_input_event *events;
+  paddr_t events_paddr;
+};
+
+static struct virtio_input_dev input_dev;
+
+static uint32_t input_reg_read32(unsigned offset) {
+  return *((volatile uint32_t *)(input_dev.paddr + offset));
+}
+
+static void input_reg_write32(unsigned offset, uint32_t value) {
+  *((volatile uint32_t *)(input_dev.paddr + offset)) = value;
+}
+
+static void input_reg_fetch_and_or32(unsigned offset, uint32_t value) {
+  input_reg_write32(offset, input_reg_read32(offset) | value);
+}
+
+void virtio_input_init(void) {
+  input_dev.paddr = VIRTIO_INPUT_PADDR;
+
+  if (input_reg_read32(VIRTIO_REG_MAGIC) != 0x74726976)
+    PANIC("virtio-input: invalid magic");
+  if (input_reg_read32(VIRTIO_REG_VERSION) != 1)
+    PANIC("virtio-input: invalid version");
+  if (input_reg_read32(VIRTIO_REG_DEVICE_ID) != VIRTIO_DEVICE_INPUT)
+    PANIC("virtio-input: invalid device id");
+
+  input_reg_write32(VIRTIO_REG_DEVICE_STATUS, 0);
+  input_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_ACK);
+  input_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER);
+  input_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_FEAT_OK);
+
+  // Allocate the virtqueue using your existing queue initialization logic
+  paddr_t virtq_paddr =
+      alloc_pages(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
+  struct virtio_virtq *vq = (struct virtio_virtq *)virtq_paddr;
+  memset(vq, 0, sizeof(*vq));
+  vq->queue_index = 0;
+  vq->used_index = (volatile uint16_t *)&vq->used.index;
+
+  input_reg_write32(VIRTIO_REG_QUEUE_SEL, 0);
+  input_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
+  input_reg_write32(VIRTIO_REG_QUEUE_ALIGN, 0);
+  input_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr);
+
+  input_dev.vq = vq;
+
+  input_reg_write32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
+
+  input_dev.events_paddr = alloc_pages(1);
+  input_dev.events = (struct virtio_input_event *)input_dev.events_paddr;
+  memset(input_dev.events, 0, PAGE_SIZE);
+
+  for (int i = 0; i < VIRTQ_ENTRY_NUM; i++) {
+    vq->descs[i].addr =
+        input_dev.events_paddr + (i * sizeof(struct virtio_input_event));
+    vq->descs[i].len = sizeof(struct virtio_input_event);
+    vq->descs[i].flags = VIRTQ_DESC_F_WRITE;
+    vq->avail.ring[i] = i;
+  }
+  vq->avail.index = VIRTQ_ENTRY_NUM;
+  __sync_synchronize();
+  input_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, vq->queue_index);
+}
+
+bool virtio_input_poll_event(uint16_t *code, int *pressed) {
+  struct virtio_virtq *vq = input_dev.vq;
+
+  if (vq->last_used_index == *vq->used_index)
+    return false;
+
+  uint32_t desc_idx = vq->used.ring[vq->last_used_index % VIRTQ_ENTRY_NUM].id;
+  ++vq->last_used_index;
+
+  struct virtio_input_event *evt = &input_dev.events[desc_idx];
+
+  vq->avail.ring[vq->avail.index % VIRTQ_ENTRY_NUM] = desc_idx;
+  ++vq->avail.index;
+  __sync_synchronize();
+  input_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, vq->queue_index);
+
+  if (evt->type == EV_KEY) {
+    *code = evt->code;
+    *pressed = (evt->value > 0) ? 1 : 0;
+    return true;
+  }
+
+  return false;
 }
