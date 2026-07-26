@@ -33,7 +33,7 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat hello ls snake mkdir write rm memtest kilo
+uprogs := cat gfxtest hello kilo ls memtest mkdir rm snake write
 utxts := hello.txt lorem.txt meow.txt
 uconfigs := dmash.cfg
 

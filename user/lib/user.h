@@ -13,3 +13,4 @@ int getchar_nonblock(void);
 uint64_t uptime(void);
 void sleep_ms(uint32_t ms);
 ssize_t getline(char **lineptr, size_t *n, FILE *stream);
+int framebuffer_present(uint32_t *framebuffer, uint32_t width, uint32_t height);

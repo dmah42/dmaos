@@ -293,6 +293,12 @@ int _unlink(const char *path) {
   return handle_retval(syscall1(SYSCALL_RM, (uint32_t)path));
 }
 
+int framebuffer_present(uint32_t *framebuffer, uint32_t width,
+                        uint32_t height) {
+  return handle_retval(syscall3(SYSCALL_PRESENT_FRAMEBUFFER,
+                                (uint32_t)framebuffer, width, height));
+}
+
 int _write(int fd, const void *buf, size_t count) {
   if (fd == 1 || fd == 2) {
     const char *cbuf = (const char *)buf;
@@ -382,13 +388,7 @@ int _nanosleep(const struct timespec *req, struct timespec *rem) {
 }
 
 void *_sbrk(int incr) {
-  extern char __bss_end[]; // defined in user.ld
-  static char *heap_end;
-  if (!heap_end)
-    heap_end = __bss_end;
-  char *prev = heap_end;
-  heap_end += incr;
-  return prev;
+  return (void *)handle_retval(syscall1(SYSCALL_SBRK, incr));
 }
 
 int chdir(const char *path) {
