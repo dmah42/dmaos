@@ -46,7 +46,8 @@ all: kernel.elf disk.img data.img
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, kernel.o fs.o page.o process.o virtio.o file.o stdlib.o)
 
 kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
-	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o
+	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map \
+	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
 	@mkdir -p $(dir $@)
@@ -68,7 +69,8 @@ $(BUILD_DIR)/user/sh/shell.o: $(USER_DIR)/sh/shell.c
 
 $(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/sh/shell.map -o $@ $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/sh/shell.map \
+	      -o $@ $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/user/sh/shell.bin: $(BUILD_DIR)/user/sh/shell.elf
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
@@ -88,7 +90,8 @@ $(BUILD_DIR)/user/bin/%.o: $(USER_DIR)/bin/%.c
 
 $(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/$*.map -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/$*.map \
+	      -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/root/bin/%: $(BUILD_DIR)/user/elf/%.elf
 	@mkdir -p $(dir $@)
