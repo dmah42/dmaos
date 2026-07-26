@@ -28,6 +28,8 @@ dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on
 
 ### 4. Shell & Command Utilities
 - **dmash Shell**: Standard shell with configurations parsing for path, prompt, etc.
+- **User Library**:
+  - Relying on newlib user-space standard library.
 - **User Utilities**:
   - `cat` - read and display file contents.
   - `ls` - list directory structures.
