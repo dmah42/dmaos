@@ -10,7 +10,7 @@
 #include "fs_shared.h"
 
 #define SECTOR_SIZE 512
-#define DISK_SIZE_BLOCKS 2048 // 2 MB disks
+#define DISK_SIZE_BLOCKS 8192 // 8 MB disks
 
 uint8_t disk[DISK_SIZE_BLOCKS * BSIZE];
 uint8_t free_bitmap[BSIZE]; // 1 block for bitmap is plenty (8192 bits)
@@ -190,6 +190,10 @@ void add_file(const char *host_path, const char *fs_path,
   uint32_t indirect_block = 0;
   uint32_t indirect_addrs[NINDIRECT];
   memset(indirect_addrs, 0, sizeof(indirect_addrs));
+  uint32_t dindirect_addrs[BSIZE / sizeof(uint32_t)];
+  memset(dindirect_addrs, 0, sizeof(dindirect_addrs));
+  uint32_t dsub_addrs[BSIZE / sizeof(uint32_t)];
+  uint32_t active_d_idx = 0xFFFFFFFF; // Track currently loaded sub-table index
 
   while ((n = fread(file_buf, 1, BSIZE, f)) > 0) {
     uint32_t db = balloc();
@@ -198,30 +202,79 @@ void add_file(const char *host_path, const char *fs_path,
     ip->size += n;
 
     if (block_index < NDIRECT) {
+      // Direct block
       ip->addrs[block_index] = db;
-    } else {
+    } else if (block_index - NDIRECT < NINDIRECT) {
+      // Single-indirect block
       uint32_t indirect_idx = block_index - NDIRECT;
-      if (indirect_idx >= NINDIRECT) {
+      if (indirect_block == 0) {
+        indirect_block = balloc();
+        ip->addrs[NDIRECT] = indirect_block;
+        memset(indirect_addrs, 0, sizeof(indirect_addrs));
+      }
+      indirect_addrs[indirect_idx] = db;
+    } else {
+      // Double-indirect block
+      uint32_t dfbn = block_index - NDIRECT - NINDIRECT;
+      if (dfbn >= NDINDIRECT) {
         fprintf(stderr, "error: file '%s' too large (max %d bytes)\n",
                 file_part, MAXFILE * BSIZE);
         fclose(f);
         exit(1);
       }
-      if (indirect_block == 0) {
-        indirect_block = balloc();
-        ip->addrs[NDIRECT] = indirect_block;
+
+      uint32_t d_idx = dfbn / NINDIRECT; // Top-level index
+      uint32_t i_idx = dfbn % NINDIRECT; // Second-level index
+
+      // Allocate top-level double-indirect table block if missing
+      if (ip->addrs[NDIRECT + 1] == 0) {
+        ip->addrs[NDIRECT + 1] = balloc();
+        memset(dindirect_addrs, 0, sizeof(dindirect_addrs));
       }
-      indirect_addrs[indirect_idx] = db;
+
+      // If we crossed into a NEW second-level sub-table (d_idx changed):
+      if (d_idx != active_d_idx) {
+        // 1. Flush the OLD sub-table to disk if one was active!
+        if (active_d_idx != 0xFFFFFFFF && dindirect_addrs[active_d_idx] != 0) {
+          write_block(dindirect_addrs[active_d_idx], dsub_addrs);
+        }
+
+        // 2. Clear memory for the new sub-table
+        memset(dsub_addrs, 0, sizeof(dsub_addrs));
+        active_d_idx = d_idx;
+
+        // 3. Allocate disk block for new sub-table if missing
+        if (dindirect_addrs[d_idx] == 0) {
+          dindirect_addrs[d_idx] = balloc();
+        }
+      }
+
+      // Store data block pointer in the separate double-indirect buffer
+      dsub_addrs[i_idx] = db;
     }
+
     ++block_index;
-    // Reset buffer for clean write (if EOF)
     memset(file_buf, 0, sizeof(file_buf));
   }
   fclose(f);
 
-  // If we used the indirect block, write it back
+  // --- POST-LOOP FLUSHING ---
+
+  // 1. Flush single-indirect block (now completely untouched by
+  // double-indirection!)
   if (indirect_block != 0) {
     write_block(indirect_block, indirect_addrs);
+  }
+
+  // 2. Flush double-indirect tables
+  if (ip->addrs[NDIRECT + 1] != 0) {
+    // Flush top-level table
+    write_block(ip->addrs[NDIRECT + 1], dindirect_addrs);
+
+    // Flush the last active second-level sub-table
+    if (active_d_idx != 0xFFFFFFFF && dindirect_addrs[active_d_idx] != 0) {
+      write_block(dindirect_addrs[active_d_idx], dsub_addrs);
+    }
   }
 
   // Get or create directory inode
@@ -384,11 +437,12 @@ int main(int argc, char *argv[]) {
   }
 
   // Write Inodes to Inode Blocks (Block 2..5)
-  struct dinode block_inodes[16];
+  struct dinode block_inodes[IPB];
+
   for (int block = 2; block <= 5; ++block) {
     memset(block_inodes, 0, sizeof(block_inodes));
-    int start_inum = (block - 2) * 16;
-    for (int idx = 0; idx < 16; ++idx) {
+    int start_inum = (block - 2) * IPB;
+    for (size_t idx = 0; idx < IPB; ++idx) {
       int inum = start_inum + idx;
       if (inum >= 1 && inum < MAX_DIR_ENTRIES) {
         block_inodes[idx] = file_inodes[inum];

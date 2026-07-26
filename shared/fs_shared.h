@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sys/k_ioctl.h"
 #include <stdint.h>
 
 #define MAX_FILENAME (128)
@@ -11,8 +12,15 @@
 #define XV6_FS_MAGIC 0x10203040
 
 #define NDIRECT 12
-#define NINDIRECT (BSIZE / 4) // BSIZE / sizeof(uint32_t) -> 256
-#define MAXFILE (NDIRECT + NINDIRECT)
+#define NINDIRECT (BSIZE / 4)              // BSIZE / sizeof(uint32_t) -> 256
+#define NDINDIRECT (NINDIRECT * NINDIRECT) // 65,536 blocks (~65 MB!)
+#define MAXFILE (NDIRECT + NINDIRECT + NDINDIRECT)
+
+// Inodes per block
+#define IPB (BSIZE / sizeof(struct dinode))
+
+// Block containing inode i
+#define IBLOCK(i, sb) ((i) / IPB + (sb).inodestart)
 
 #define MAX_DIR_ENTRIES 64
 #define DIRSIZ 30
@@ -38,8 +46,8 @@ struct dinode {
   uint16_t minor;              // Unused
   uint16_t nlink;              // Number of links to inode
   uint32_t size;               // Size of file (bytes)
-  uint32_t addrs[NDIRECT + 1]; // Data block addresses
-};
+  uint32_t addrs[NDIRECT + 2]; // Data block addresses
+} __attribute__((aligned(128)));
 
 struct fsdirent {
   uint16_t inum;

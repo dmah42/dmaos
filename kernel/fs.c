@@ -1,8 +1,8 @@
 #include "fs.h"
 
+#include "file.h"
 #include "k_errno.h"
 #include "k_fcntl.h"
-#include "file.h"
 #include "kernel.h"
 #include "process.h"
 #include "stdlib.h"
@@ -102,12 +102,14 @@ static void ilock(struct inode *ip) {
 
 /*
  * Maps a file block number to a physical block address on disk,
- * supporting direct blocks and single indirection.
+ * supporting direct blocks, single indirection, and double indirection.
  */
 static uint32_t bmap(struct inode *ip, uint32_t bn) {
   if (ip == NULL) {
     PANIC("bmap: invalid ip\n");
   }
+
+  // Direct blocks
   if (bn < NDIRECT) {
     uint32_t addr = ip->dinode.addrs[bn];
     if (addr == 0) {
@@ -117,6 +119,8 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
   }
 
   bn -= NDIRECT;
+
+  // Single-indirect block
   if (bn < NINDIRECT) {
     uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
     if (indirect_block == 0) {
@@ -131,8 +135,43 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
     return addr;
   }
 
-  PANIC("bmap: block index %d exceeds max file size (NDIRECT+NINDIRECT)",
-        bn + NDIRECT);
+  bn -= NINDIRECT;
+
+  // Double-indirect block
+  if (bn < NDINDIRECT) {
+    uint32_t dindirect_block = ip->dinode.addrs[NDIRECT + 1];
+    if (dindirect_block == 0) {
+      PANIC("bmap: inode %d double-indirect block is 0", ip->inum);
+    }
+
+    // Step A: Read the top-level double-indirect table
+    uint32_t dindirect[BSIZE / sizeof(uint32_t)];
+    read_block(ip->dev, dindirect_block, dindirect);
+
+    // Find which single-indirect block table we need
+    uint32_t indirect_idx = bn / NINDIRECT;
+    uint32_t indirect_block = dindirect[indirect_idx];
+    if (indirect_block == 0) {
+      PANIC("bmap: inode %d double-indirect table index %d is 0", ip->inum,
+            indirect_idx);
+    }
+
+    // Step B: Read the single-indirect table
+    uint32_t indirect[BSIZE / sizeof(uint32_t)];
+    read_block(ip->dev, indirect_block, indirect);
+
+    // Find the final data block sector address
+    uint32_t direct_idx = bn % NINDIRECT;
+    uint32_t addr = indirect[direct_idx];
+    if (addr == 0) {
+      PANIC("bmap: inode %d double-indirect entry [%d][%d] is 0", ip->inum,
+            indirect_idx, direct_idx);
+    }
+    return addr;
+  }
+
+  PANIC("bmap: block index %d exceeds max file size (%d blocks)",
+        bn + NDIRECT + NINDIRECT, MAXFILE);
 }
 
 /*
@@ -616,6 +655,8 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
   if (ip == NULL) {
     PANIC("bmap_alloc: invalid ip\n");
   }
+
+  // Direct block
   if (bn < NDIRECT) {
     uint32_t addr = ip->dinode.addrs[bn];
     if (addr == 0) {
@@ -627,6 +668,8 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
   }
 
   bn -= NDIRECT;
+
+  // Single-indirect block
   if (bn < NINDIRECT) {
     uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
     if (indirect_block == 0) {
@@ -644,6 +687,47 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
     }
     return addr;
   }
+
+  bn -= NINDIRECT;
+
+  // Double-indirect block
+  if (bn < NDINDIRECT) {
+    // Step A: Top-level double-indirect table block
+    uint32_t dindirect_block = ip->dinode.addrs[NDIRECT + 1];
+    if (dindirect_block == 0) {
+      dindirect_block = balloc(ip->dev);
+      ip->dinode.addrs[NDIRECT + 1] = dindirect_block;
+      iupdate(ip);
+    }
+
+    uint32_t dindirect[BSIZE / sizeof(uint32_t)];
+    read_block(ip->dev, dindirect_block, dindirect);
+
+    uint32_t indirect_idx = bn / NINDIRECT;
+    uint32_t indirect_block = dindirect[indirect_idx];
+
+    // Step B: Second-level single-indirect table block
+    if (indirect_block == 0) {
+      indirect_block = balloc(ip->dev);
+      dindirect[indirect_idx] = indirect_block;
+      write_block(ip->dev, dindirect_block, dindirect);
+    }
+
+    uint32_t indirect[BSIZE / sizeof(uint32_t)];
+    read_block(ip->dev, indirect_block, indirect);
+
+    uint32_t direct_idx = bn % NINDIRECT;
+    uint32_t addr = indirect[direct_idx];
+
+    // Step C: Actual data block
+    if (addr == 0) {
+      addr = balloc(ip->dev);
+      indirect[direct_idx] = addr;
+      write_block(ip->dev, indirect_block, indirect);
+    }
+    return addr;
+  }
+
   PANIC("bmap_alloc: out of range");
   return 0;
 }
@@ -710,12 +794,14 @@ static void itrunc(struct inode *ip, uint32_t new_size) {
   if (new_blocks < old_blocks) {
     for (uint32_t bn = new_blocks; bn < old_blocks; ++bn) {
       if (bn < NDIRECT) {
+        // Direct block
         uint32_t addr = ip->dinode.addrs[bn];
         if (addr != 0) {
           bfree(ip->dev, addr);
           ip->dinode.addrs[bn] = 0;
         }
-      } else {
+      } else if (bn - NDIRECT < NINDIRECT) {
+        // Single-indirect block
         uint32_t indirect_idx = bn - NDIRECT;
         uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
         if (indirect_block != 0) {
@@ -728,14 +814,63 @@ static void itrunc(struct inode *ip, uint32_t new_size) {
             write_block(ip->dev, indirect_block, indirect);
           }
         }
+      } else {
+        // Double-indirect block
+        uint32_t dfbn = bn - NDIRECT - NINDIRECT;
+        uint32_t dindirect_block = ip->dinode.addrs[NDIRECT + 1];
+        if (dindirect_block != 0) {
+          uint32_t dindirect[BSIZE / sizeof(uint32_t)];
+          read_block(ip->dev, dindirect_block, dindirect);
+
+          uint32_t indirect_idx = dfbn / NINDIRECT;
+          uint32_t indirect_block = dindirect[indirect_idx];
+
+          if (indirect_block != 0) {
+            uint32_t indirect[BSIZE / sizeof(uint32_t)];
+            read_block(ip->dev, indirect_block, indirect);
+
+            uint32_t direct_idx = dfbn % NINDIRECT;
+            uint32_t addr = indirect[direct_idx];
+            if (addr != 0) {
+              bfree(ip->dev, addr);
+              indirect[direct_idx] = 0;
+              write_block(ip->dev, indirect_block, indirect);
+            }
+
+            // If this second-level table is now entirely empty, free it too!
+            bool sub_table_empty = true;
+            for (int i = 0; i < NINDIRECT; ++i) {
+              if (indirect[i] != 0) {
+                sub_table_empty = false;
+                break;
+              }
+            }
+            if (sub_table_empty) {
+              bfree(ip->dev, indirect_block);
+              dindirect[indirect_idx] = 0;
+              write_block(ip->dev, dindirect_block, dindirect);
+            }
+          }
+        }
       }
     }
 
+    // Clean up single-indirect table block if file shrunk below NDIRECT
     if (new_blocks <= NDIRECT) {
       uint32_t indirect_block = ip->dinode.addrs[NDIRECT];
       if (indirect_block != 0) {
         bfree(ip->dev, indirect_block);
         ip->dinode.addrs[NDIRECT] = 0;
+      }
+    }
+
+    // Clean up double-indirect root block if file shrunk below NDIRECT +
+    // NINDIRECT
+    if (new_blocks <= NDIRECT + NINDIRECT) {
+      uint32_t dindirect_block = ip->dinode.addrs[NDIRECT + 1];
+      if (dindirect_block != 0) {
+        bfree(ip->dev, dindirect_block);
+        ip->dinode.addrs[NDIRECT + 1] = 0;
       }
     }
   }
@@ -774,17 +909,14 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
 }
 
 static int alloc_file_descriptor(struct inode *ip, int flags) {
-  struct File *f = file_alloc();
+  struct File *f = file_create(FD_INODE, flags);
   if (f == NULL) {
     kprintf("alloc_file_descriptor: global file table is full\n");
     iput(ip);
     return ERR_NO_SPACE;
   }
 
-  f->type = FD_INODE;
   f->ip = ip;
-  f->readable = (flags & FILECTRL_READONLY) != 0;
-  f->writable = (flags & FILECTRL_WRITEONLY) != 0;
   f->off = (flags & FILECTRL_APPEND) ? ip->dinode.size : 0;
 
   struct Process *proc = get_current_process();
@@ -808,7 +940,8 @@ int fs_create(const char *path, int flags) {
     return ERR_NOT_FOUND;
   }
 
-  if (dp->dev == 0 && (flags & (FILECTRL_WRITEONLY | FILECTRL_CREATE | FILECTRL_TRUNCATE | FILECTRL_APPEND))) {
+  if (dp->dev == 0 && (flags & (FILECTRL_WRITEONLY | FILECTRL_CREATE |
+                                FILECTRL_TRUNCATE | FILECTRL_APPEND))) {
     kprintf("fs_create: write access denied on dev %d (read-only)\n", dp->dev);
     iput(dp);
     return ERR_PERMISSION_DENIED;

@@ -33,8 +33,8 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat gfxtest hello kilo ls memtest mkdir rm snake write
-utxts := hello.txt lorem.txt meow.txt
+uprogs := cat doom gfxtest hello kilo ls memtest mkdir rm snake write
+utxts := hello.txt lorem.txt meow.txt doom1.wad
 uconfigs := dmash.cfg
 
 .PHONY: all clean run
@@ -84,6 +84,36 @@ $(BUILD_DIR)/user/sh/shell.bin.o: $(BUILD_DIR)/user/sh/shell.bin
 $(BUILD_DIR)/user/bin/kilo.o: third_party/kilo/kilo.c
 	@mkdir -p $(dir $@)
 	$(cc) $(user_cflags) -Wno-char-subscripts -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+
+DOOM_DIR := third_party/doomgeneric/doomgeneric
+DOOM_EXCLUDE_SRCS := $(DOOM_DIR)/doomgeneric_%.c \
+                $(DOOM_DIR)/i_allegromusic.c \
+                $(DOOM_DIR)/i_allegrosound.c \
+                $(DOOM_DIR)/i_sdlmusic.c \
+                $(DOOM_DIR)/i_sdlsound.c \
+                $(DOOM_DIR)/i_winmusic.c \
+                $(DOOM_DIR)/i_cdmus.c \
+                $(DOOM_DIR)/i_sound.c
+
+DOOM_SRCS := $(filter-out $(DOOM_EXCLUDE_SRCS), $(wildcard $(DOOM_DIR)/*.c))
+DOOM_SRCS += user/lib/doomgeneric_dmaos.c
+DOOM_CFLAGS := $(user_cflags) -I$(DOOM_DIR) -Wno-error
+
+DOOM_OBJS := $(patsubst $(DOOM_DIR)/%.c, $(BUILD_DIR)/user/bin/doom/%.o, $(filter $(DOOM_DIR)/%.c, $(DOOM_SRCS)))
+DOOM_OBJS += $(BUILD_DIR)/user/lib/doomgeneric_dmaos.o
+
+$(BUILD_DIR)/user/bin/doom/%.o: $(DOOM_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(cc) $(DOOM_CFLAGS) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+
+$(BUILD_DIR)/user/lib/doomgeneric_dmaos.o: $(USER_DIR)/lib/doomgeneric_dmaos.c
+	@mkdir -p $(dir $@)
+	$(cc) $(DOOM_CFLAGS) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+
+$(BUILD_DIR)/user/elf/doom.elf: $(DOOM_OBJS) $(USER_LIB_OBJS)  $(USER_DIR)/lib/user.ld
+	@mkdir -p $(dir $@)
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/doom.map \
+	      -o $@ $(DOOM_OBJS) $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/user/bin/%.o: $(USER_DIR)/bin/%.c
 	@mkdir -p $(dir $@)
