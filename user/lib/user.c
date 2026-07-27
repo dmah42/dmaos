@@ -445,3 +445,13 @@ int input_poll(uint16_t *code, int *pressed) {
   return handle_retval(
       syscall2(SYSCALL_INPUT_POLL, (uint32_t)code, (uint32_t)pressed));
 }
+
+int net_send(const uint8_t *buf, uint32_t len) {
+  return handle_retval(
+      syscall2(SYSCALL_NET_SEND, (uint32_t)buf, (uint32_t)len));
+}
+
+int net_recv(uint8_t *buf, uint32_t len) {
+  return handle_retval(
+      syscall2(SYSCALL_NET_SEND, (uint32_t)buf, (uint32_t)len));
+}

@@ -2,6 +2,7 @@
 
 #include "kernel.h"
 #include "page.h"
+#include "process.h"
 #include "stdlib.h"
 
 #define VIRTIO_MAGIC_NUMBER 0x74726976
@@ -507,4 +508,104 @@ void virtio_net_init() {
                   VIRTIO_STATUS_DRIVER_OK); // DRIVER_OK
 
   net_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, 0);
+}
+
+static uint16_t get_free_tx_descriptor(struct virtio_net_queue *tx_q) {
+  static uint16_t next_free_idx = 0;
+
+  // Choose the slot we want to use next
+  uint16_t desc_idx = next_free_idx;
+
+  // Safety Check: Look at the device's "used" ring.
+  // If the device hasn't processed this descriptor yet, the queue is completely
+  // full.
+  while (tx_q->last_used_idx == tx_q->used->idx) {
+    yield();
+  }
+
+  // Advance our allocator index for the next syscall invocation
+  next_free_idx = (next_free_idx + 1) % VIRTQ_NET_ENTRY_NUM;
+
+  return desc_idx;
+}
+
+int virtio_net_send(const uint8_t *buf, uint32_t len) {
+  struct virtio_net_queue *tx_q = &net_dev.tx_vq;
+  uint16_t desc_idx = get_free_tx_descriptor(tx_q);
+
+  // Clear the mandatory VirtIO network header inside the target buffer
+  struct virtio_net_header *hdr =
+      (struct virtio_net_header *)tx_q->buffers[desc_idx];
+  memset(hdr, 0, sizeof(struct virtio_net_header));
+
+  // 3. Safely copy the user space packet payload right after the header
+  void *packet_payload_dest =
+      (void *)((uintptr_t)hdr + sizeof(struct virtio_net_header));
+  memcpy(packet_payload_dest, buf, len);
+
+  // 4. Update the descriptor table entries so QEMU knows what to read
+  tx_q->desc[desc_idx].addr = (uintptr_t)hdr;
+  tx_q->desc[desc_idx].len = sizeof(struct virtio_net_header) + len;
+  tx_q->desc[desc_idx].flags = 0;
+  tx_q->desc[desc_idx].next = 0;
+
+  // Update available ring buffer
+  uint16_t avail_idx = tx_q->avail->idx % VIRTQ_NET_ENTRY_NUM;
+  tx_q->avail->ring[avail_idx] = desc_idx;
+
+  __sync_synchronize();
+  ++tx_q->avail->idx;
+
+  net_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, tx_q->queue_index);
+
+  return len;
+}
+
+static bool is_packet_available(struct virtio_net_queue *rx_q) {
+  // If our local tracker matches the hardware index, no new packets have
+  // arrived
+  return rx_q->last_used_idx != rx_q->used->idx;
+}
+
+int virtio_net_recv(uint8_t *buf, uint32_t len) {
+  struct virtio_net_queue *rx_q = &net_dev.rx_vq;
+
+  while (!is_packet_available(rx_q)) {
+    yield();
+  }
+
+  uint16_t used_slot = rx_q->last_used_idx % VIRTQ_NET_ENTRY_NUM;
+  uint32_t desc_idx = rx_q->used->ring[used_slot].id;
+  uint32_t total_len = rx_q->used->ring[used_slot].len;
+
+  struct virtio_net_header *hdr =
+      (struct virtio_net_header *)rx_q->buffers[desc_idx];
+  void *packet_payload_src =
+      (void *)((uintptr_t)hdr + sizeof(struct virtio_net_header));
+
+  // Calculate actual ethernet frame length (subtracting the VirtIO header size)
+  if (total_len <= sizeof(struct virtio_net_header)) {
+    // Length is too short to be a real packet.
+    return -1;
+  }
+  size_t packet_len = total_len - sizeof(struct virtio_net_header);
+
+  // Enforce user buffer boundaries to prevent memory overflow
+  size_t copy_size = (packet_len > len) ? len : packet_len;
+
+  memcpy(buf, packet_payload_src, copy_size);
+
+  rx_q->desc[desc_idx].len = PAGE_SIZE;
+  rx_q->desc[desc_idx].flags = 2;
+
+  uint16_t avail_slot = rx_q->avail->idx % VIRTQ_NET_ENTRY_NUM;
+  rx_q->avail->ring[avail_slot] = desc_idx;
+
+  __sync_synchronize();
+  ++rx_q->avail->idx;
+  ++rx_q->last_used_idx;
+
+  net_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, rx_q->queue_index);
+
+  return (int)copy_size; // Return the exact number of bytes delivered
 }

@@ -19,3 +19,5 @@ void virtio_input_init();
 bool virtio_input_poll_event(uint16_t *code, int *pressed);
 
 void virtio_net_init();
+int virtio_net_send(const uint8_t *buf, uint32_t len);
+int virtio_net_recv(uint8_t *buf, uint32_t len);

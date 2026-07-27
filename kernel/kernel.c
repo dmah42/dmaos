@@ -607,6 +607,37 @@ void handle_syscall(struct trap_frame *f) {
       f->a0 = 0;
     break;
   }
+  case SYSCALL_NET_SEND: {
+    const uint8_t *buf = (uint8_t *)f->a0;
+    uint32_t len = (uint32_t)f->a1;
+
+    if (!validate_user_read_buffer(buf, len)) {
+      kprintf("net_send: invalid buffer pointer\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+    if (len > 1514 || len == 0) {
+      kprintf("net_send: invalid length %d\n", len);
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+
+    f->a0 = net_send(buf, len);
+    break;
+  }
+  case SYSCALL_NET_RECV: {
+    uint8_t *buf = (uint8_t *)f->a0;
+    uint32_t len = (uint32_t)f->a1;
+
+    if (!validate_user_write_buffer(buf, len)) {
+      kprintf("net_recv: invalid buffer pointer\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+
+    f->a0 = net_recv(buf, len);
+    break;
+  }
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
