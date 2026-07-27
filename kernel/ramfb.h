@@ -7,3 +7,4 @@
 
 void ramfb_init();
 uint32_t *ramfb_get_buffer();
+int ramfb_present(uint32_t *buffer, uint32_t width, uint32_t height);

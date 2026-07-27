@@ -107,3 +107,46 @@ void ramfb_init() {
 }
 
 uint32_t *ramfb_get_buffer() { return g_framebuffer; }
+
+int ramfb_present(uint32_t *fb, uint32_t w, uint32_t h) {
+  // Calculate fixed-point step ratios: (src_dim << 16) / dst_dim
+  uint32_t step_x = (w << 16) / FB_WIDTH;
+  uint32_t step_y = (h << 16) / FB_HEIGHT;
+
+  uint32_t curr_y_fp = 0; // Fixed-point accumulator for Y
+
+  uint32_t *framebuffer = ramfb_get_buffer();
+
+  for (uint32_t dst_y = 0; dst_y < FB_HEIGHT; ++dst_y) {
+    // Extract integer Y source coordinate
+    uint32_t src_y = curr_y_fp >> 16;
+    if (src_y >= h) {
+      src_y = h - 1;
+    }
+
+    // Pointers to the current scanlines
+    const uint32_t *src_line = &fb[src_y * w];
+    uint32_t *dst_line = &framebuffer[dst_y * FB_WIDTH];
+
+    uint32_t curr_x_fp = 0; // Fixed-point accumulator for X
+
+    for (uint32_t dst_x = 0; dst_x < FB_WIDTH; ++dst_x) {
+      // Extract integer X source coordinate
+      uint32_t src_x = curr_x_fp >> 16;
+
+      if (src_x >= w) {
+        src_x = w - 1;
+      }
+
+      // Copy pixel
+      dst_line[dst_x] = src_line[src_x];
+
+      // Advance source X accumulator
+      curr_x_fp += step_x;
+    }
+
+    // Advance source Y accumulator
+    curr_y_fp += step_y;
+  }
+  return 0;
+}
