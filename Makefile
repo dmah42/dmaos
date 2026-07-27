@@ -24,7 +24,8 @@ qflags := -machine virt -bios default -nographic \
           -drive id=drive1,file=data.img,format=raw,if=none \
           -device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1 \
 					-device ramfb -display default \
-					-device virtio-keyboard-device,bus=virtio-mmio-bus.2
+					-device virtio-keyboard-device,bus=virtio-mmio-bus.2 \
+					-netdev user,id=net0 -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3
 
 # Directories
 KERNEL_DIR := kernel
@@ -45,7 +46,8 @@ all: kernel.elf disk.img data.img
 
 # ----------------- Kernel -----------------
 
-KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, kernel.o file.o fs.o page.o process.o ramfb.o stdlib.o virtio.o)
+kobjs := kernel.o file.o fs.o net.o page.o process.o ramfb.o stdlib.o virtio.o
+KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs))
 
 kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
 	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map \

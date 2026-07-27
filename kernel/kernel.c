@@ -6,6 +6,7 @@
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
+#include "net.h"
 #include "page.h"
 #include "process.h"
 #include "ramfb.h"
@@ -738,9 +739,16 @@ void kmain(void) {
 
   kprintf("dmaOS kernel boot started\n");
 
-  kprintf("Initializing VirtIO devices\n");
+  kprintf("Initializing VirtIO block devices\n");
   virtio_blk_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing VirtIO input devices\n");
   virtio_input_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing network devices\n");
+  net_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing file system\n");

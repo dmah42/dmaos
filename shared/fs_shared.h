@@ -1,6 +1,5 @@
 #pragma once
 
-#include "sys/k_ioctl.h"
 #include <stdint.h>
 
 #define MAX_FILENAME (128)
