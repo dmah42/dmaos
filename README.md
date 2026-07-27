@@ -2,6 +2,8 @@
 
 dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on the QEMU `virt` machine. It features a page-mapped kernel, a cooperative scheduler, a multi-device virtual filesystem with persistence, and a custom user shell.
 
+oh, and it runs DOOM.
+
 ---
 
 ## Current Project Status

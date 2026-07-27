@@ -1,5 +1,6 @@
 /bin/*
 /build/*
+/disk/doom1.wad
 *.bin
 *.egg-info
 *.elf
