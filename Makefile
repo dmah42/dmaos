@@ -47,6 +47,12 @@ cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
 ldflags := -fuse-ld=lld
 
 SYSROOT := third_party/newlib
+NEWLIB_LIBS := $(SYSROOT)/lib/libc.a $(SYSROOT)/lib/libm.a $(SYSROOT)/lib/libgcc.a
+
+$(NEWLIB_LIBS):
+	@echo "[dmaOS Build] Newlib libraries missing. Auto-fetching toolchain..."
+	tools/update_newlib.sh
+
 user_cflags := $(cflags) -isystem $(SYSROOT)/include \
                -include user/lib/user.h \
 							 -ffunction-sections -fdata-sections -flto \
@@ -108,10 +114,10 @@ $(BUILD_DIR)/user/sh/shell.o: $(USER_DIR)/sh/shell.c
 	@mkdir -p $(dir $@)
 	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-$(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
+$(BUILD_DIR)/user/sh/shell.elf: $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld $(NEWLIB_LIBS)
 	@mkdir -p $(dir $@)
 	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/sh/shell.map \
-	      -o $@ $(BUILD_DIR)/user/sh/shell.o $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
+	      -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/user/sh/shell.bin: $(BUILD_DIR)/user/sh/shell.elf
 	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
@@ -150,16 +156,16 @@ $(BUILD_DIR)/user/lib/doomgeneric_dmaos.o: $(USER_DIR)/lib/doomgeneric_dmaos.c
 	@mkdir -p $(dir $@)
 	$(cc) $(DOOM_CFLAGS) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-$(BUILD_DIR)/user/elf/doom.elf: $(DOOM_OBJS) $(USER_LIB_OBJS)  $(USER_DIR)/lib/user.ld
+$(BUILD_DIR)/user/elf/doom.elf: $(DOOM_OBJS) $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld $(NEWLIB_LIBS)
 	@mkdir -p $(dir $@)
 	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/doom.map \
-	      -o $@ $(DOOM_OBJS) $(USER_LIB_OBJS) -L$(SYSROOT)/lib -lc -lm -lgcc
+	      -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
 
 $(BUILD_DIR)/user/bin/%.o: $(USER_DIR)/bin/%.c
 	@mkdir -p $(dir $@)
 	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-$(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld
+$(BUILD_DIR)/user/elf/%.elf: $(BUILD_DIR)/user/bin/%.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld $(NEWLIB_LIBS)
 	@mkdir -p $(dir $@)
 	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld -Wl,-Map=$(BUILD_DIR)/user/elf/$*.map \
 	      -o $@ $(filter %.o, $^) -L$(SYSROOT)/lib -lc -lm -lgcc
