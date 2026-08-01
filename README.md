@@ -47,10 +47,21 @@ oh, and it runs DOOM.
 ## Build & Run Instructions
 
 ### Prerequisites
-Install the LLVM toolchain (clang, lld, llvm-objcopy) and QEMU:
-```bash
-brew install llvm qemu
-```
+Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-system-riscv32`):
+
+- **macOS (Homebrew)**:
+  ```bash
+  brew install llvm qemu
+  ```
+
+- **Linux / WSL (Ubuntu/Debian)**:
+  ```bash
+  sudo apt update && sudo apt install -y clang lld llvm qemu-system-misc make
+  ```
+
+- **DOOM WAD Asset**:
+  Obtain `doom1.wad` (Shareware DOOM WAD) and place it in the `disk/` directory (`disk/doom1.wad`).
+
 
 ### Build & Execution Commands
 - **Clean builds**:

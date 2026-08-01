@@ -1,6 +1,28 @@
-cc := $(shell brew --prefix llvm)/bin/clang
-objcopy := $(shell brew --prefix llvm)/bin/llvm-objcopy
-qemu := $(shell brew --prefix)/bin/qemu-system-riscv32
+# Toolchain Auto-Detection (macOS Homebrew vs WSL/Linux System PATH)
+BREW_LLVM_PREFIX := $(shell brew --prefix llvm 2>/dev/null)
+BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+
+ifneq ($(BREW_LLVM_PREFIX),)
+    DEFAULT_CC := $(BREW_LLVM_PREFIX)/bin/clang
+    DEFAULT_OBJCOPY := $(BREW_LLVM_PREFIX)/bin/llvm-objcopy
+else
+    DEFAULT_CC := clang
+    DEFAULT_OBJCOPY := llvm-objcopy
+endif
+
+ifneq ($(BREW_PREFIX),)
+    DEFAULT_QEMU := $(BREW_PREFIX)/bin/qemu-system-riscv32
+else
+    DEFAULT_QEMU := qemu-system-riscv32
+endif
+
+cc ?= $(DEFAULT_CC)
+objcopy ?= $(DEFAULT_OBJCOPY)
+qemu ?= $(DEFAULT_QEMU)
+
+$(info [dmaOS Build] Compiler : $(cc))
+$(info [dmaOS Build] Objcopy  : $(objcopy))
+$(info [dmaOS Build] QEMU     : $(qemu))
 
 cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
           --target=riscv32-unknown-elf -nostdlib \

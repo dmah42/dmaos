@@ -2,12 +2,24 @@
 set -e
 
 VERSION=${1:-"14.2.0-3"}
+HOST_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 HOST_ARCH=$(uname -m)
 
-if [ "$HOST_ARCH" = "arm64" ]; then
-    ARCH_SUFFIX="darwin-arm64"
+if [ "$HOST_OS" = "darwin" ]; then
+    if [ "$HOST_ARCH" = "arm64" ]; then
+        ARCH_SUFFIX="darwin-arm64"
+    else
+        ARCH_SUFFIX="darwin-x64"
+    fi
+elif [ "$HOST_OS" = "linux" ]; then
+    if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
+        ARCH_SUFFIX="linux-arm64"
+    else
+        ARCH_SUFFIX="linux-x64"
+    fi
 else
-    ARCH_SUFFIX="darwin-x64"
+    echo "Unsupported OS: $HOST_OS"
+    exit 1
 fi
 
 URL="https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v$VERSION/xpack-riscv-none-elf-gcc-$VERSION-$ARCH_SUFFIX.tar.gz"

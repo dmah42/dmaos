@@ -1,6 +1,8 @@
 /bin/*
 /build/*
-/disk/doom1.wad
+/disk/*.wad
+/disk/*.WAD
+/third_party/newlib/*
 *.bin
 *.egg-info
 *.elf
@@ -8,4 +10,5 @@
 *.log
 *.map
 *.o
+*.swp
 compile_commands.json
