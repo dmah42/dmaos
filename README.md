@@ -57,6 +57,7 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
 - **Linux / WSL (Ubuntu/Debian)**:
   ```bash
   sudo apt update && sudo apt install -y clang lld llvm qemu-system-misc make
+opensbi
   ```
 
 - **DOOM WAD Asset**:

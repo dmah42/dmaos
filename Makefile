@@ -16,13 +16,30 @@ else
     DEFAULT_QEMU := qemu-system-riscv32
 endif
 
+# Query package managers (dpkg / rpm / pacman) for installed 32-bit OpenSBI firmware
+OPENSBI_PKG_PATH := $(shell \
+    dpkg -L opensbi 2>/dev/null | grep -m1 'riscv32.*fw_dynamic\.bin$$' || \
+    rpm -ql opensbi 2>/dev/null | grep -m1 'riscv32.*fw_dynamic\.bin$$' || \
+    pacman -Ql opensbi 2>/dev/null | grep -m1 'riscv32.*fw_dynamic\.bin$$' \
+)
+
+SYSTEM_OPENSBI_32 := $(firstword $(OPENSBI_PKG_PATH) $(wildcard \
+    /usr/lib/riscv32*/opensbi/*/fw_dynamic.bin \
+    /usr/share/*/opensbi*riscv32*.bin \
+    /usr/share/qemu/opensbi-riscv32*.bin \
+))
+
+DEFAULT_BIOS := $(if $(SYSTEM_OPENSBI_32),$(SYSTEM_OPENSBI_32),default)
+
 cc ?= $(DEFAULT_CC)
 objcopy ?= $(DEFAULT_OBJCOPY)
 qemu ?= $(DEFAULT_QEMU)
+bios ?= $(DEFAULT_BIOS)
 
 $(info [dmaOS Build] Compiler : $(cc))
 $(info [dmaOS Build] Objcopy  : $(objcopy))
 $(info [dmaOS Build] QEMU     : $(qemu))
+$(info [dmaOS Build] BIOS     : $(bios))
 
 cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
           --target=riscv32-unknown-elf -nostdlib \
@@ -38,7 +55,7 @@ user_ldflags := $(ldflags) -Wl,--gc-sections -s -flto
 
 host_cflags := -std=c11 -O2 -Wall -Wextra -Werror
 
-qflags := -machine virt -bios default -nographic \
+qflags := -machine virt -bios $(bios) -nographic \
           -serial mon:stdio --no-reboot \
           -d unimp,guest_errors,cpu_reset -D qemu.log \
           -drive id=drive0,file=disk.img,format=raw,if=none \
@@ -57,7 +74,7 @@ BUILD_DIR := build
 
 # Guest binaries & assets
 uprogs := cat doom gfxtest hello kilo ls memtest mkdir rm snake write
-utxts := hello.txt lorem.txt meow.txt doom1.wad
+utxts := hello.txt lorem.txt meow.txt doom1.wad #doom2.wad doom3.wad
 uconfigs := dmash.cfg
 
 .PHONY: all clean run
