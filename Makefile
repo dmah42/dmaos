@@ -69,7 +69,9 @@ qflags := -machine virt -bios $(bios) -nographic \
           -drive id=drive1,file=data.img,format=raw,if=none \
           -device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1 \
 					-device ramfb -display default \
-					-device virtio-keyboard-device,bus=virtio-mmio-bus.2
+					-device virtio-keyboard-device,bus=virtio-mmio-bus.2 \
+					-netdev user,id=net0,hostfwd=udp::9999-:9999,hostfwd=tcp::9999-:9999 \
+					-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3
 
 # Directories
 KERNEL_DIR := kernel
@@ -79,7 +81,7 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat doom gfxtest hello kilo ls memtest mkdir rm snake write
+uprogs := cat doom gfxtest hello kilo ls memtest mkdir nettest rm snake write
 utxts := hello.txt lorem.txt meow.txt doom1.wad #doom2.wad doom3.wad
 uconfigs := dmash.cfg
 
@@ -90,15 +92,20 @@ all: kernel.elf disk.img data.img
 
 # ----------------- Kernel -----------------
 
-KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, kernel.o file.o fs.o page.o process.o ramfb.o stdlib.o virtio.o)
+KERNEL_INCLUDES := -I$(KERNEL_DIR) -I$(KERNEL_DIR)/lwip -I$(SHARED_DIR) -isystem third_party/lwip/src/include
+
+include $(KERNEL_DIR)/lwip/lwip.mk
+
+kobjs := kernel.o file.o fs.o net.o page.o process.o ramfb.o stdlib.o string.o virtio.o
+KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
 	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map \
-	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o
+	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o -Lthird_party/newlib/lib -lgcc
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(cc) $(cflags) -I$(KERNEL_DIR) -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+	$(cc) $(cflags) $(KERNEL_INCLUDES) -MMD -MP -c -o $@ $<
 
 # ----------------- User Library -----------------
 

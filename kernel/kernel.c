@@ -6,10 +6,12 @@
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
+#include "net.h"
 #include "page.h"
 #include "process.h"
 #include "ramfb.h"
 #include "stdlib.h"
+#include "string.h"
 #include "syscall.h"
 #include "virtio.h"
 
@@ -588,45 +590,7 @@ void handle_syscall(struct trap_frame *f) {
       return;
     }
 
-    // Calculate fixed-point step ratios: (src_dim << 16) / dst_dim
-    uint32_t step_x = (user_fb_width << 16) / FB_WIDTH;
-    uint32_t step_y = (user_fb_height << 16) / FB_HEIGHT;
-
-    uint32_t curr_y_fp = 0; // Fixed-point accumulator for Y
-
-    uint32_t *framebuffer = ramfb_get_buffer();
-
-    for (uint32_t dst_y = 0; dst_y < FB_HEIGHT; ++dst_y) {
-      // Extract integer Y source coordinate
-      uint32_t src_y = curr_y_fp >> 16;
-      if (src_y >= user_fb_height)
-        src_y = user_fb_height - 1;
-
-      // Pointers to the current scanlines
-      const uint32_t *src_line = &user_fb[src_y * user_fb_width];
-      uint32_t *dst_line = &framebuffer[dst_y * FB_WIDTH];
-
-      uint32_t curr_x_fp = 0; // Fixed-point accumulator for X
-
-      for (uint32_t dst_x = 0; dst_x < FB_WIDTH; ++dst_x) {
-        // Extract integer X source coordinate
-        uint32_t src_x = curr_x_fp >> 16;
-
-        if (src_x >= user_fb_width) {
-          src_x = user_fb_width - 1;
-        }
-
-        // Copy pixel
-        dst_line[dst_x] = src_line[src_x];
-
-        // Advance source X accumulator
-        curr_x_fp += step_x;
-      }
-
-      // Advance source Y accumulator
-      curr_y_fp += step_y;
-    }
-    f->a0 = 0;
+    f->a0 = ramfb_present(user_fb, user_fb_width, user_fb_height);
     break;
   }
   case SYSCALL_INPUT_POLL: {
@@ -642,6 +606,119 @@ void handle_syscall(struct trap_frame *f) {
       f->a0 = 1;
     else
       f->a0 = 0;
+    break;
+  }
+  case SYSCALL_NET_SEND: {
+    const uint8_t *buf = (uint8_t *)f->a0;
+    uint32_t len = (uint32_t)f->a1;
+
+    if (!validate_user_read_buffer(buf, len)) {
+      kprintf("net_send: invalid buffer pointer\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+    if (len > 1514 || len == 0) {
+      kprintf("net_send: invalid length %d\n", len);
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+
+    f->a0 = net_send(buf, len);
+    break;
+  }
+  case SYSCALL_NET_RECV: {
+    uint8_t *buf = (uint8_t *)f->a0;
+    uint32_t len = (uint32_t)f->a1;
+
+    if (!validate_user_write_buffer(buf, len)) {
+      kprintf("net_recv: invalid buffer pointer\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      return;
+    }
+
+    f->a0 = net_recv(buf, len);
+    break;
+  }
+  case SYSCALL_SOCKET: {
+    f->a0 = sys_socket(f->a0, f->a1, f->a2);
+    break;
+  }
+  case SYSCALL_BIND: {
+    const void *addr = (const void *)f->a1;
+    uint32_t addrlen = (uint32_t)f->a2;
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_bind(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_CONNECT: {
+    const void *addr = (const void *)f->a1;
+    uint32_t addrlen = (uint32_t)f->a2;
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_connect(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_LISTEN: {
+    f->a0 = sys_listen(f->a0, f->a1);
+    break;
+  }
+  case SYSCALL_ACCEPT: {
+    void *addr = (void *)f->a1;
+    uint32_t *addrlen = (uint32_t *)f->a2;
+    if (addrlen && !validate_user_write_buffer(addrlen, sizeof(uint32_t))) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && addrlen && !validate_user_write_buffer(addr, *addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_accept(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_SENDTO: {
+    int fd = f->a0;
+    const void *buf = (const void *)f->a1;
+    uint32_t len = (uint32_t)f->a2;
+    int flags = f->a4;
+    const void *addr = (const void *)f->a5;
+    uint32_t addrlen = (uint32_t)f->a6;
+    if (len > 0 && !validate_user_read_buffer(buf, len)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_sendto(fd, buf, len, flags, addr, addrlen);
+    break;
+  }
+  case SYSCALL_RECVFROM: {
+    int fd = f->a0;
+    void *buf = (void *)f->a1;
+    uint32_t len = (uint32_t)f->a2;
+    int flags = f->a4;
+    void *addr = (void *)f->a5;
+    uint32_t *addrlen = (uint32_t *)f->a6;
+    if (len > 0 && !validate_user_write_buffer(buf, len)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addrlen && !validate_user_write_buffer(addrlen, sizeof(uint32_t))) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && addrlen && !validate_user_write_buffer(addr, *addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_recvfrom(fd, buf, len, flags, addr, addrlen);
     break;
   }
   default:
@@ -738,9 +815,16 @@ void kmain(void) {
 
   kprintf("dmaOS kernel boot started\n");
 
-  kprintf("Initializing VirtIO devices\n");
+  kprintf("Initializing VirtIO block devices\n");
   virtio_blk_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing VirtIO input devices\n");
   virtio_input_init();
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
+  kprintf("Initializing network devices\n");
+  net_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing file system\n");

@@ -1,8 +1,9 @@
 #include "file.h"
-#include "k_fcntl.h"
-
 #include "fs.h"
+#include "k_fcntl.h"
 #include "kernel.h"
+#include "net.h"
+#include "string.h"
 
 struct File file_table[GLOBAL_OPEN_FILE_LIMIT];
 
@@ -55,9 +56,12 @@ void file_close(struct File *f) {
     PANIC("file_close: closing already free file slot");
   }
   if (--f->ref == 0) {
-    if (f->ip != NULL) {
+    if (f->type == FD_INODE && f->ip != NULL) {
       iput(f->ip);
       f->ip = NULL;
+    } else if (f->type == FD_SOCKET && f->sock != NULL) {
+      net_sock_close(f->sock);
+      f->sock = NULL;
     }
     f->type = FD_NONE;
   }

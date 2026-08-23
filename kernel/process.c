@@ -6,6 +6,7 @@
 #include "k_fcntl.h"
 #include "kernel.h"
 #include "page.h"
+#include "string.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];
@@ -83,6 +84,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   map_page(page_table, VIRTIO_BLK0_PADDR, VIRTIO_BLK0_PADDR, PAGE_R | PAGE_W);
   map_page(page_table, VIRTIO_BLK1_PADDR, VIRTIO_BLK1_PADDR, PAGE_R | PAGE_W);
   map_page(page_table, VIRTIO_INPUT_PADDR, VIRTIO_INPUT_PADDR, PAGE_R | PAGE_W);
+  map_page(page_table, VIRTIO_NET_PADDR, VIRTIO_NET_PADDR, PAGE_R | PAGE_W);
 
   // Map user pages.
   struct inode *ip = NULL;

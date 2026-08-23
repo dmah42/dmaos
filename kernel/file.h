@@ -1,17 +1,18 @@
 #pragma once
 
+#include "fs.h"
+#include "net.h"
+#include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #define NUM_FILES_PER_PROCESS 16
 #define GLOBAL_OPEN_FILE_LIMIT 64
-
-struct inode;
 
 enum FileDescType {
   FD_NONE = 0,
   FD_INODE = 1,
   FD_CONSOLE = 2,
+  FD_SOCKET = 3,
 };
 
 struct File {
@@ -19,7 +20,10 @@ struct File {
   enum FileDescType type;
   bool readable;
   bool writable;
-  struct inode *ip;
+  union {
+    struct inode *ip;
+    struct socket *sock;
+  };
   uint32_t off;
 };
 
