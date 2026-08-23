@@ -2,6 +2,7 @@
 
 #include "kernel.h"
 #include "stdlib.h"
+#include "string.h"
 
 extern char __free_ram[], __free_ram_end[];
 

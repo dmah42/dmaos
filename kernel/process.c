@@ -6,6 +6,7 @@
 #include "k_fcntl.h"
 #include "kernel.h"
 #include "page.h"
+#include "string.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];

@@ -11,6 +11,7 @@
 #include "process.h"
 #include "ramfb.h"
 #include "stdlib.h"
+#include "string.h"
 #include "syscall.h"
 #include "virtio.h"
 
@@ -636,6 +637,88 @@ void handle_syscall(struct trap_frame *f) {
     }
 
     f->a0 = net_recv(buf, len);
+    break;
+  }
+  case SYSCALL_SOCKET: {
+    f->a0 = sys_socket(f->a0, f->a1, f->a2);
+    break;
+  }
+  case SYSCALL_BIND: {
+    const void *addr = (const void *)f->a1;
+    uint32_t addrlen = (uint32_t)f->a2;
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_bind(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_CONNECT: {
+    const void *addr = (const void *)f->a1;
+    uint32_t addrlen = (uint32_t)f->a2;
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_connect(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_LISTEN: {
+    f->a0 = sys_listen(f->a0, f->a1);
+    break;
+  }
+  case SYSCALL_ACCEPT: {
+    void *addr = (void *)f->a1;
+    uint32_t *addrlen = (uint32_t *)f->a2;
+    if (addrlen && !validate_user_write_buffer(addrlen, sizeof(uint32_t))) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && addrlen && !validate_user_write_buffer(addr, *addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_accept(f->a0, addr, addrlen);
+    break;
+  }
+  case SYSCALL_SENDTO: {
+    int fd = f->a0;
+    const void *buf = (const void *)f->a1;
+    uint32_t len = (uint32_t)f->a2;
+    int flags = f->a4;
+    const void *addr = (const void *)f->a5;
+    uint32_t addrlen = (uint32_t)f->a6;
+    if (len > 0 && !validate_user_read_buffer(buf, len)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && !validate_user_read_buffer(addr, addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_sendto(fd, buf, len, flags, addr, addrlen);
+    break;
+  }
+  case SYSCALL_RECVFROM: {
+    int fd = f->a0;
+    void *buf = (void *)f->a1;
+    uint32_t len = (uint32_t)f->a2;
+    int flags = f->a4;
+    void *addr = (void *)f->a5;
+    uint32_t *addrlen = (uint32_t *)f->a6;
+    if (len > 0 && !validate_user_write_buffer(buf, len)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addrlen && !validate_user_write_buffer(addrlen, sizeof(uint32_t))) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    if (addr && addrlen && !validate_user_write_buffer(addr, *addrlen)) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_recvfrom(fd, buf, len, flags, addr, addrlen);
     break;
   }
   default:

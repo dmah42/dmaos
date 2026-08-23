@@ -2,6 +2,9 @@
 #include "k_fcntl.h"
 #include "k_stat.h"
 #include "sys/k_ioctl.h"
+#include "sys/socket.h"
+#include "netinet/in.h"
+#include "arpa/inet.h"
 #include "syscall.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -57,8 +60,24 @@ static int syscall3(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
   register int a2 __asm__("a2") = arg2;
   register int a3 __asm__("a3") = sysno;
   __asm__ __volatile__("ecall"
-                       : "=r"(a0)
-                       : "r"(a0), "r"(a1), "r"(a2), "r"(a3)
+                       : "+r"(a0)
+                       : "r"(a1), "r"(a2), "r"(a3)
+                       : "memory");
+  return a0;
+}
+
+static int syscall6(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2,
+                    uint32_t arg3, uint32_t arg4, uint32_t arg5) {
+  register int a0 __asm__("a0") = arg0;
+  register int a1 __asm__("a1") = arg1;
+  register int a2 __asm__("a2") = arg2;
+  register int a3 __asm__("a3") = sysno;
+  register int a4 __asm__("a4") = arg3;
+  register int a5 __asm__("a5") = arg4;
+  register int a6 __asm__("a6") = arg5;
+  __asm__ __volatile__("ecall"
+                       : "+r"(a0)
+                       : "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6)
                        : "memory");
   return a0;
 }
@@ -454,4 +473,87 @@ int net_send(const uint8_t *buf, uint32_t len) {
 int net_recv(uint8_t *buf, uint32_t len) {
   return handle_retval(
       syscall2(SYSCALL_NET_RECV, (uint32_t)buf, (uint32_t)len));
+}
+
+// ---------------------------------------------------------------------------
+// POSIX Sockets & Networking
+// ---------------------------------------------------------------------------
+
+int socket(int domain, int type, int protocol) {
+  return handle_retval(syscall3(SYSCALL_SOCKET, domain, type, protocol));
+}
+
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+  return handle_retval(syscall3(SYSCALL_BIND, sockfd, (uint32_t)addr, addrlen));
+}
+
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+  return handle_retval(syscall3(SYSCALL_CONNECT, sockfd, (uint32_t)addr, addrlen));
+}
+
+int listen(int sockfd, int backlog) {
+  return handle_retval(syscall2(SYSCALL_LISTEN, sockfd, backlog));
+}
+
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+  return handle_retval(syscall3(SYSCALL_ACCEPT, sockfd, (uint32_t)addr, (uint32_t)addrlen));
+}
+
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+               const struct sockaddr *dest_addr, socklen_t addrlen) {
+  return handle_retval(syscall6(SYSCALL_SENDTO, sockfd, (uint32_t)buf, len,
+                               flags, (uint32_t)dest_addr, addrlen));
+}
+
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                 struct sockaddr *src_addr, socklen_t *addrlen) {
+  return handle_retval(syscall6(SYSCALL_RECVFROM, sockfd, (uint32_t)buf, len,
+                               flags, (uint32_t)src_addr, (uint32_t)addrlen));
+}
+
+ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
+  return sendto(sockfd, buf, len, flags, NULL, 0);
+}
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
+  return recvfrom(sockfd, buf, len, flags, NULL, NULL);
+}
+
+in_addr_t inet_addr(const char *cp) {
+  struct in_addr val;
+  if (inet_aton(cp, &val)) {
+    return val.s_addr;
+  }
+  return INADDR_NONE;
+}
+
+int inet_aton(const char *cp, struct in_addr *inp) {
+  uint32_t parts[4] = {0};
+  int part = 0;
+  while (*cp) {
+    if (*cp >= '0' && *cp <= '9') {
+      parts[part] = parts[part] * 10 + (*cp - '0');
+      if (parts[part] > 255) return 0;
+    } else if (*cp == '.') {
+      part++;
+      if (part > 3) return 0;
+    } else {
+      return 0;
+    }
+    cp++;
+  }
+  if (part != 3) return 0;
+  if (inp) {
+    inp->s_addr = (parts[0]) | (parts[1] << 8) | (parts[2] << 16) | (parts[3] << 24);
+  }
+  return 1;
+}
+
+char *inet_ntoa(struct in_addr in) {
+  static char buffer[16];
+  uint32_t addr = in.s_addr;
+  snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u",
+           addr & 0xFF, (addr >> 8) & 0xFF,
+           (addr >> 16) & 0xFF, (addr >> 24) & 0xFF);
+  return buffer;
 }

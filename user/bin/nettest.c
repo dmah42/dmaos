@@ -1,257 +1,165 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "colors.h"
 #include "user.h"
 
-// Protocol Constants
-#define ETHERTYPE_IPV4 0x0800
-#define ETHERTYPE_ARP 0x0806
+#define TEST_PORT 9999
 
-#define ARP_OP_REQUEST 1
-#define ARP_OP_REPLY 2
+static int run_udp_test(void) {
+  printf(BOLD "--- dmaOS UDP Socket Test (lwIP) ---\n" DEFAULT);
+  printf("Creating UDP socket...\n");
 
-#define IP_PROTO_UDP 17
-
-// Default Guest MAC address
-static const uint8_t GUEST_MAC[6] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x57};
-
-// Header Structures (packed)
-struct eth_hdr {
-  uint8_t dst_mac[6];
-  uint8_t src_mac[6];
-  uint16_t ethertype;
-} __attribute__((packed));
-
-struct arp_hdr {
-  uint16_t hw_type;
-  uint16_t proto_type;
-  uint8_t hw_size;
-  uint8_t proto_size;
-  uint16_t opcode;
-  uint8_t sender_mac[6];
-  uint8_t sender_ip[4];
-  uint8_t target_mac[6];
-  uint8_t target_ip[4];
-} __attribute__((packed));
-
-struct ipv4_hdr {
-  uint8_t ihl_version;
-  uint8_t tos;
-  uint16_t total_len;
-  uint16_t id;
-  uint16_t frag_off;
-  uint8_t ttl;
-  uint8_t protocol;
-  uint16_t checksum;
-  uint8_t src_ip[4];
-  uint8_t dst_ip[4];
-} __attribute__((packed));
-
-struct udp_hdr {
-  uint16_t src_port;
-  uint16_t dst_port;
-  uint16_t length;
-  uint16_t checksum;
-} __attribute__((packed));
-
-// Endianness Helpers
-static inline uint16_t ntohs(uint16_t net16) {
-  return (uint16_t)((net16 << 8) | (net16 >> 8));
-}
-
-static inline uint16_t htons(uint16_t host16) { return ntohs(host16); }
-
-// MAC printing helper
-static void print_mac(const uint8_t mac[6]) {
-  printf("%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
-         mac[4], mac[5]);
-}
-
-// IP printing helper
-static void print_ip(const uint8_t ip[4]) {
-  printf("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-}
-
-// Handler for ARP frames
-static bool handle_arp_frame(uint8_t *buf, size_t len) {
-  if (len < sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
-    return false;
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    printf(BOLD RED "Failed to create socket (err = %d)\n" DEFAULT, fd);
+    return 1;
   }
 
-  struct eth_hdr *eth = (struct eth_hdr *)buf;
-  struct arp_hdr *arp = (struct arp_hdr *)(buf + sizeof(struct eth_hdr));
+  struct sockaddr_in serv_addr;
+  memset(&serv_addr, 0, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(TEST_PORT);
+  serv_addr.sin_addr.s_addr = INADDR_ANY;
 
-  uint16_t opcode = ntohs(arp->opcode);
-
-  printf("  [ARP Frame] Opcode: %d (%s)\n", opcode,
-         (opcode == ARP_OP_REQUEST) ? "Request" : "Reply");
-  printf("  Sender IP: ");
-  print_ip(arp->sender_ip);
-  printf(" (MAC: ");
-  print_mac(arp->sender_mac);
-  printf(")\n");
-  printf("  Target IP: ");
-  print_ip(arp->target_ip);
-  printf("\n");
-
-  if (opcode == ARP_OP_REQUEST) {
-    printf(BOLD YELLOW
-           "  --> Formatting ARP Reply for QEMU SLIRP...\n" DEFAULT);
-
-    // Save gateway IP and MAC before overwriting
-    uint8_t gateway_ip[4];
-    uint8_t gateway_mac[6];
-    for (int i = 0; i < 4; ++i)
-      gateway_ip[i] = arp->sender_ip[i];
-    for (int i = 0; i < 6; ++i)
-      gateway_mac[i] = arp->sender_mac[i];
-
-    // Ethernet Header: Dst MAC = gateway MAC, Src MAC = guest MAC
-    for (int i = 0; i < 6; ++i) {
-      eth->dst_mac[i] = gateway_mac[i];
-      eth->src_mac[i] = GUEST_MAC[i];
-    }
-
-    // ARP Header: Change to Reply (2)
-    arp->opcode = htons(ARP_OP_REPLY);
-
-    // Sender = Guest (10.0.2.15 / GUEST_MAC)
-    for (int i = 0; i < 6; ++i)
-      arp->sender_mac[i] = GUEST_MAC[i];
-    for (int i = 0; i < 4; ++i)
-      arp->sender_ip[i] = arp->target_ip[i]; // Guest IP
-
-    // Target = Gateway (10.0.2.2 / gateway_mac)
-    for (int i = 0; i < 6; ++i)
-      arp->target_mac[i] = gateway_mac[i];
-    for (int i = 0; i < 4; ++i)
-      arp->target_ip[i] = gateway_ip[i];
-
-    int tx_res = net_send(buf, len);
-    if (tx_res < 0) {
-      printf(BOLD RED "  Error sending ARP Reply\n" DEFAULT);
-    } else {
-      printf(BOLD GREEN "  [ARP Reply Transmitted] %d bytes\n" DEFAULT, tx_res);
-    }
+  if (bind(fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    printf(BOLD RED "Failed to bind socket to port %d\n" DEFAULT, TEST_PORT);
+    close(fd);
+    return 1;
   }
 
-  // Return false to keep main loop listening for the subsequent UDP packet
-  return false;
-}
+  printf(BOLD GREEN "Socket bound to UDP port %d\n" DEFAULT, TEST_PORT);
+  printf("Awaiting UDP packet from host (timeout 10s)...\n");
 
-// Handler for IPv4 / UDP frames
-static bool handle_udp_frame(uint8_t *buf, size_t len) {
-  size_t min_len =
-      sizeof(struct eth_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr);
-  if (len < min_len) {
-    return false;
-  }
-
-  struct eth_hdr *eth = (struct eth_hdr *)buf;
-  struct ipv4_hdr *ip = (struct ipv4_hdr *)(buf + sizeof(struct eth_hdr));
-  struct udp_hdr *udp = (struct udp_hdr *)(buf + sizeof(struct eth_hdr) +
-                                           sizeof(struct ipv4_hdr));
-
-  uint16_t src_port = ntohs(udp->src_port);
-  uint16_t dst_port = ntohs(udp->dst_port);
-
-  printf("  [IPv4 UDP Packet Received]\n");
-  printf("  Source IP: ");
-  print_ip(ip->src_ip);
-  printf(":%d\n", src_port);
-  printf("  Dest IP:   ");
-  print_ip(ip->dst_ip);
-  printf(":%d\n", dst_port);
-
-  size_t payload_offset = min_len;
-  printf("  Payload:   \"");
-  for (size_t p = payload_offset; p < len && p < payload_offset + 64; ++p) {
-    char c = (char)buf[p];
-    if (c >= 32 && c <= 126)
-      printf("%c", c);
-    else
-      printf(".");
-  }
-  printf("\"\n");
-
-  printf(BOLD YELLOW "  --> Swapping Headers for UDP Echo Reply...\n" DEFAULT);
-
-  // 1. Swap Ethernet MACs
-  for (int i = 0; i < 6; ++i) {
-    uint8_t tmp = eth->dst_mac[i];
-    eth->dst_mac[i] = eth->src_mac[i];
-    eth->src_mac[i] = tmp;
-  }
-
-  // 2. Swap IPv4 Addresses
-  for (int i = 0; i < 4; ++i) {
-    uint8_t tmp = ip->src_ip[i];
-    ip->src_ip[i] = ip->dst_ip[i];
-    ip->dst_ip[i] = tmp;
-  }
-
-  // 3. Swap UDP Ports
-  uint16_t tmp_port = udp->src_port;
-  udp->src_port = udp->dst_port;
-  udp->dst_port = tmp_port;
-
-  // Clear UDP checksum (optional in IPv4)
-  udp->checksum = 0;
-
-  int tx_res = net_send(buf, len);
-  if (tx_res < 0) {
-    printf(BOLD RED "  Error sending UDP Echo\n" DEFAULT);
-  } else {
-    printf(BOLD GREEN "  [UDP Echo Transmitted] %d bytes\n" DEFAULT, tx_res);
-  }
-
-  // Return true to terminate nettest after successful UDP echo
-  return true;
-}
-
-int main() {
-  printf(BOLD "--- Net Test Utility Started ---\n" DEFAULT);
-  printf("Awaiting raw network packet from host network...\n");
-
-  uint8_t packet_buffer[1600];
+  char buf[512];
+  struct sockaddr_in client_addr;
+  socklen_t addr_len = sizeof(client_addr);
 
   // Poll for up to 10 seconds (600 iterations * 16ms)
   for (int i = 0; i < 600; ++i) {
-    int rx_bytes = net_recv(packet_buffer, sizeof(packet_buffer));
+    memset(&client_addr, 0, sizeof(client_addr));
+    addr_len = sizeof(client_addr);
 
-    if (rx_bytes < 0) {
-      sleep_ms(16);
-      continue;
-    }
+    ssize_t rx_bytes = recvfrom(fd, buf, sizeof(buf) - 1, 0,
+                                (struct sockaddr *)&client_addr, &addr_len);
 
-    if (rx_bytes < (int)sizeof(struct eth_hdr)) {
-      continue;
-    }
+    if (rx_bytes > 0) {
+      buf[rx_bytes] = '\0';
+      printf(BOLD GREEN "\n[UDP Packet Received] %d bytes from %s:%d\n" DEFAULT,
+             (int)rx_bytes, inet_ntoa(client_addr.sin_addr),
+             ntohs(client_addr.sin_port));
+      printf("  Payload: \"%s\"\n", buf);
 
-    struct eth_hdr *eth = (struct eth_hdr *)packet_buffer;
-    uint16_t ethertype = ntohs(eth->ethertype);
-
-    printf(BOLD GREEN
-           "\n[Packet Received] Length: %d bytes (EtherType: 0x%04x)\n" DEFAULT,
-           rx_bytes, ethertype);
-
-    if (ethertype == ETHERTYPE_ARP) {
-      handle_arp_frame(packet_buffer, (size_t)rx_bytes);
-    } else if (ethertype == ETHERTYPE_IPV4) {
-      struct ipv4_hdr *ip =
-          (struct ipv4_hdr *)(packet_buffer + sizeof(struct eth_hdr));
-      if (ip->protocol == IP_PROTO_UDP) {
-        bool finished = handle_udp_frame(packet_buffer, (size_t)rx_bytes);
-        if (finished) {
-          return 0;
-        }
+      printf(BOLD YELLOW "  --> Sending UDP Echo Reply back...\n" DEFAULT);
+      ssize_t tx_bytes = sendto(fd, buf, (size_t)rx_bytes, 0,
+                                (struct sockaddr *)&client_addr, addr_len);
+      if (tx_bytes < 0) {
+        printf(BOLD RED "  Error sending echo reply\n" DEFAULT);
+      } else {
+        printf(BOLD GREEN "  [UDP Echo Transmitted] %d bytes\n" DEFAULT,
+               (int)tx_bytes);
       }
+
+      sleep_ms(100);
+      close(fd);
+      return 0;
     }
+
+    sleep_ms(16);
   }
 
   printf(BOLD RED "\nNo UDP packet received within timeout period.\n" DEFAULT);
+  close(fd);
   return 1;
+}
+
+static int run_tcp_test(void) {
+  printf(BOLD "--- dmaOS TCP Socket Test (lwIP) ---\n" DEFAULT);
+  printf("Creating TCP listening socket...\n");
+
+  int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (listen_fd < 0) {
+    printf(BOLD RED "Failed to create socket (err = %d)\n" DEFAULT, listen_fd);
+    return 1;
+  }
+
+  struct sockaddr_in serv_addr;
+  memset(&serv_addr, 0, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(TEST_PORT);
+  serv_addr.sin_addr.s_addr = INADDR_ANY;
+
+  if (bind(listen_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    printf(BOLD RED "Failed to bind socket to port %d\n" DEFAULT, TEST_PORT);
+    close(listen_fd);
+    return 1;
+  }
+
+  if (listen(listen_fd, 2) < 0) {
+    printf(BOLD RED "Failed to listen on socket\n" DEFAULT);
+    close(listen_fd);
+    return 1;
+  }
+
+  printf(BOLD GREEN "TCP Server listening on port %d\n" DEFAULT, TEST_PORT);
+  printf("Awaiting TCP connection from host (timeout 15s)...\n");
+
+  int client_fd = -1;
+  for (int i = 0; i < 900; ++i) {
+    client_fd = accept(listen_fd, NULL, NULL);
+    if (client_fd >= 0) {
+      break;
+    }
+    sleep_ms(16);
+  }
+
+  if (client_fd < 0) {
+    printf(BOLD RED
+           "\nNo TCP connection received within timeout period.\n" DEFAULT);
+    close(listen_fd);
+    return 1;
+  }
+
+  printf(BOLD GREEN "\n[TCP Client Connected] fd = %d\n" DEFAULT, client_fd);
+  printf("Awaiting data from client...\n");
+
+  char buf[512];
+  for (int i = 0; i < 300; ++i) {
+    ssize_t rx_bytes = read(client_fd, buf, sizeof(buf) - 1);
+    if (rx_bytes > 0) {
+      buf[rx_bytes] = '\0';
+      printf(BOLD GREEN "[TCP Data Received] %d bytes: \"%s\"\n" DEFAULT,
+             (int)rx_bytes, buf);
+
+      printf(BOLD YELLOW "--> Sending TCP Echo Reply back...\n" DEFAULT);
+      ssize_t tx_bytes = write(client_fd, buf, (size_t)rx_bytes);
+      if (tx_bytes < 0) {
+        printf(BOLD RED "Error sending TCP echo reply\n" DEFAULT);
+      } else {
+        printf(BOLD GREEN "[TCP Echo Transmitted] %d bytes\n" DEFAULT,
+               (int)tx_bytes);
+      }
+      break;
+    }
+    sleep_ms(16);
+  }
+
+  sleep_ms(100);
+  close(client_fd);
+  close(listen_fd);
+  printf(BOLD GREEN "TCP Connection closed cleanly.\n" DEFAULT);
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  if (argc > 1 && (strcmp(argv[1], "tcp") == 0 || strcmp(argv[1], "-t") == 0)) {
+    return run_tcp_test();
+  }
+  return run_udp_test();
 }

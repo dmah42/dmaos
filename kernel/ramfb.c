@@ -2,6 +2,7 @@
 
 #include "kernel.h"
 #include "stdlib.h"
+#include "string.h"
 
 /* RISC-V Virt Board MMIO Addresses */
 #define FW_CFG_BASE 0x10100000ULL
@@ -21,20 +22,20 @@
 #define DRM_FORMAT_XRGB8888 0x34325258
 
 /* Packed structures matching QEMU specs */
-typedef struct __attribute__((packed)) {
+typedef struct _packed {
   uint32_t size;
   uint16_t select;
   uint16_t reserved;
   char name[56];
 } FWCfgFile;
 
-typedef struct __attribute__((packed)) {
+typedef struct _packed {
   uint32_t control;
   uint32_t len;
   uint64_t addr;
 } FWCfgDmaAccess;
 
-typedef struct __attribute__((packed)) {
+typedef struct _packed {
   uint64_t addr;   /* Physical address of RAM buffer */
   uint32_t fourcc; /* DRM FOURCC pixel format */
   uint32_t flags;  /* Flags (usually 0) */

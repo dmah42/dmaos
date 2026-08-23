@@ -28,10 +28,17 @@ oh, and it runs DOOM.
 - **Write Protections**: Writes, folder creations, and deletions are prohibited on Device 0 and allowed only under the persistent `/home` directory (Device 1).
 - **Leak-Safe Overwriting**: Automatic block deallocation and file truncation (`itrunc`) when files are overwritten at offset 0.
 
-### 4. Shell & Command Utilities
-- **dmash Shell**: Standard shell with configurations parsing for path, prompt, etc.
+### 4. Networking & BSD Sockets (lwIP)
+- **VirtIO MMIO Network Device**: VirtIO network adapter driver operating on MMIO bus 3 with ring buffer transmit/receive queues.
+- **lwIP TCP/IP Stack**: Full IPv4 network stack integrated in kernel space (`NO_SYS 1`) with Ethernet frame processing, dynamic ARP resolution, ICMP, UDP, and TCP.
+- **BSD Socket Subsystem**: In-kernel socket abstraction and POSIX system calls (`socket`, `bind`, `listen`, `accept`, `connect`, `sendto`, `recvfrom`).
+- **Unified VFS File Descriptors**: Network sockets are first-class file descriptors (`FD_SOCKET`) fully integrated with `read()`, `write()`, and `close()`.
+- **POSIX Userland Headers**: Standard networking headers provided in user space: `<sys/socket.h>`, `<netinet/in.h>`, and `<arpa/inet.h>`.
+
+### 5. Shell & Command Utilities
+- **dmash Shell**: Standard shell with configuration parsing for path, prompt, etc.
 - **User Library**:
-  - Relying on newlib user-space standard library.
+  - Powered by the Newlib user-space standard library.
 - **User Utilities**:
   - `cat` - read and display file contents.
   - `ls` - list directory structures.
@@ -41,7 +48,7 @@ oh, and it runs DOOM.
   - `kilo` - externally developed interactive terminal text editor using ANSI escape sequences.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
-  - `nettest` - network diagnostic test utility (ARP resolution & UDP echo).
+  - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
 
 ---
 
@@ -92,9 +99,9 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
-- [ ] **Standard C Library Integration (Newlib)**:
-  - Replace the custom, homegrown user-space standard library (`user/lib`) with standard **Newlib**.
-  - Map Newlib's standard system call stubs (like `_read`, `_write`, `_open`, `_close`, `_sbrk`, and `_stat`) to our kernel ABI using a defensive translation layer in `user/lib` to maintain decoupling.
+- [x] **Standard C Library Integration (Newlib)**:
+  - Replaced the homegrown standard library with standard **Newlib**.
+  - Mapped Newlib system call stubs (`_read`, `_write`, `_open`, `_close`, `_sbrk`, `_stat`) to our kernel ABI using a defensive translation layer in `user/lib`.
 
 - [ ] **Standard Streams & Shell Piping**:
   - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers to enable shell command pipelines (e.g., `cat file.txt | grep query`).
@@ -110,13 +117,14 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
-- [-] **Network Stack & Utilities (VirtIO Network Card)**:
-  - Implement a `virtio-net` MMIO network driver and raw packet system calls (`SYSCALL_NET_SEND`, `SYSCALL_NET_RECV`).
-  - Create initial `nettest` utility for ARP response handling and UDP packet echo testing.
-  - Future goals: Higher-level socket layer (UDP/TCP) and utilities (`ping`, `wget`, `netstat`).
-    - `ping` - ICMP Echo Request/Reply utility to check host reachability.
-    - `traceroute` - TTL-incrementing path analyzer.
-    - `telnet` - clear-text interactive remote terminal client.
-    - `wget` - retrieve files over HTTP directly to the persistent `/home` drive.
-    - `netstat` - track and display active network interface statistics.
+- [x] **Network Stack & BSD Sockets (VirtIO Network Card & lwIP)**:
+  - Implemented `virtio-net` MMIO network device driver and polling adapter.
+  - Integrated lwIP TCP/IP stack with BSD socket syscalls and VFS file descriptor routing.
+  - Implemented `nettest` utility for dynamic ARP, UDP, and TCP echo testing.
+- [ ] **Network Utilities**:
+  - `ping` - ICMP Echo Request/Reply utility to check host reachability.
+  - `traceroute` - TTL-incrementing path analyzer.
+  - `telnet` - clear-text interactive remote terminal client.
+  - `wget` - retrieve files over HTTP directly to the persistent `/home` drive.
+  - `netstat` - track and display active network interface statistics.
 

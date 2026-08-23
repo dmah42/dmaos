@@ -4,8 +4,10 @@
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "kernel.h"
+#include "net.h"
 #include "process.h"
 #include "stdlib.h"
+#include "string.h"
 #include "virtio.h"
 
 #define NINODE (50)
@@ -1039,6 +1041,8 @@ int fs_read(int fd, char *buf, int n) {
       f->off += r;
     }
     return r;
+  } else if (f->type == FD_SOCKET) {
+    return net_sock_read(f->sock, buf, n);
   } else {
     PANIC("unsupported file desc type %d", f->type);
   }
@@ -1063,12 +1067,13 @@ int fs_write(int fd, const char *buf, int n) {
     }
     return n;
   } else if (f->type == FD_INODE) {
-
     int w = writei(f->ip, buf, f->off, n);
     if (w > 0) {
       f->off += w;
     }
     return w < 0 ? ERR_NO_SPACE : w;
+  } else if (f->type == FD_SOCKET) {
+    return net_sock_write(f->sock, buf, n);
   } else {
     PANIC("unsupported file desc type: %d", f->type);
   }

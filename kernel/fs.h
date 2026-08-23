@@ -1,6 +1,5 @@
 #pragma once
 
-#include "file.h"
 #include "fs_shared.h"
 #include "k_stat.h"
 #include "stdlib.h"

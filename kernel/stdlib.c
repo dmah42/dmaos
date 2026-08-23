@@ -1,131 +1,48 @@
 #include "stdlib.h"
 
-void *memcpy(void *dst, const void *src, size_t n) {
-  uint8_t *d = (uint8_t *)dst;
-  const uint8_t *s = (const uint8_t *)src;
-  while (n--) {
-    *d++ = *s++;
-  }
-  return dst;
+uint64_t uptime(void) {
+  uint32_t low, high, temp;
+  __asm__ __volatile__("1:\n"
+                       "rdtimeh %0\n"
+                       "rdtime %1\n"
+                       "rdtimeh %2\n"
+                       "bne %0, %2, 1b\n"
+                       : "=&r"(high), "=&r"(low), "=&r"(temp));
+  return ((uint64_t)high << 32) | low;
 }
 
-void *memset(void *buf, char c, size_t n) {
-  uint8_t *p = (uint8_t *)buf;
-  while (n--) {
-    *p++ = c;
-  }
-  return buf;
+uint32_t uptime_ms(void) {
+  return (uint32_t)(uptime() / 10000);
 }
 
-int strcmp(const char *s1, const char *s2) {
-  while (*s1 && *s2) {
-    if (*s1 != *s2)
-      break;
-    ++s1;
-    ++s2;
-  }
-  return *(uint8_t *)s1 - *(uint8_t *)s2;
+uint32_t rand32(void) {
+  static uint32_t state = 0x853c49e6;
+  state ^= (uint32_t)uptime();
+  state ^= state << 13;
+  state ^= state >> 17;
+  state ^= state << 5;
+  return state;
 }
 
-int strncmp(const char *s1, const char *s2, size_t n) {
-  while (n && *s1 && (*s1 == *s2)) {
-    ++s1;
-    ++s2;
-    --n;
+int atoi(const char *s) {
+  int res = 0;
+  int sign = 1;
+  while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
+    s++;
   }
-  if (n == 0) {
-    return 0;
+  if (*s == '-') {
+    sign = -1;
+    s++;
+  } else if (*s == '+') {
+    s++;
   }
-  return *(const uint8_t *)s1 - *(const uint8_t *)s2;
+  while (*s >= '0' && *s <= '9') {
+    res = res * 10 + (*s - '0');
+    s++;
+  }
+  return sign * res;
 }
 
-size_t strlen(const char *s) {
-  size_t len = 0;
-  while (*s++) {
-    ++len;
-  }
-  return len;
-}
-
-char *strncpy(char *dst, const char *src, size_t n) {
-  char *orig = dst;
-  while (n > 0 && *src) {
-    *dst++ = *src++;
-    --n;
-  }
-  while (n > 0) {
-    *dst++ = '\0';
-    --n;
-  }
-  return orig;
-}
-
-char *strncat(char *dst, const char *src, size_t n) {
-  char *orig = dst;
-  while (*dst) {
-    ++dst;
-  }
-  while (n > 0 && *src) {
-    *dst++ = *src++;
-    --n;
-  }
-  *dst = '\0';
-  return orig;
-}
-
-char *strchr(const char *s, int c) {
-  while (*s) {
-    if (*s == (char)c) {
-      return (char *)s;
-    }
-    ++s;
-  }
-  if (c == '\0') {
-    return (char *)s;
-  }
-  return NULL;
-}
-
-char *strstr(const char *haystack, const char *needle) {
-  size_t needle_len = strlen(needle);
-  if (needle_len == 0) {
-    return (char *)haystack;
-  }
-  while (*haystack) {
-    if (strncmp(haystack, needle, needle_len) == 0) {
-      return (char *)haystack;
-    }
-    ++haystack;
-  }
-  return NULL;
-}
-
-int memcmp(const void *s1, const void *s2, size_t n) {
-  const uint8_t *p1 = s1;
-  const uint8_t *p2 = s2;
-  while (n--) {
-    if (*p1 != *p2) {
-      return *p1 - *p2;
-    }
-    ++p1;
-    ++p2;
-  }
-  return 0;
-}
-
-void *memmove(void *dst, const void *src, size_t n) {
-  uint8_t *d = dst;
-  const uint8_t *s = src;
-  if (d < s) {
-    while (n--) {
-      *d++ = *s++;
-    }
-  } else if (d > s) {
-    d += n;
-    s += n;
-    while (n--) {
-      *--d = *--s;
-    }
-  }
-  return dst;
+int abs(int x) {
+  return (x < 0) ? -x : x;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "stdlib.h"
 
 struct sbiret {
   long error;
@@ -39,7 +40,7 @@ struct trap_frame {
   uint32_t s10;
   uint32_t s11;
   uint32_t sp;
-} __attribute__((packed));
+} _packed;
 
 #define READ_CSR(reg)                                                          \
   ({                                                                           \

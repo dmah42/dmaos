@@ -3,8 +3,8 @@
 #include "k_errno.h"
 #include "kernel.h"
 #include "page.h"
-#include "process.h"
 #include "stdlib.h"
+#include "string.h"
 
 #define VIRTIO_MAGIC_NUMBER 0x74726976
 
@@ -51,7 +51,7 @@ struct virtq_desc {
   uint32_t len;
   uint16_t flags;
   uint16_t next;
-} __attribute__((packed));
+} _packed;
 
 #define VIRTIO_BLK_T_IN 0
 #define VIRTIO_BLK_T_OUT 1
@@ -64,18 +64,18 @@ struct virtq_blk_avail {
   uint16_t flags;
   uint16_t index;
   uint16_t ring[VIRTQ_BLK_ENTRY_NUM];
-} __attribute__((packed));
+} _packed;
 
 struct virtq_blk_used_elem {
   uint32_t id;
   uint32_t len;
-} __attribute__((packed));
+} _packed;
 
 struct virtq_blk_used {
   uint16_t flags;
   uint16_t index;
   struct virtq_blk_used_elem ring[VIRTQ_BLK_ENTRY_NUM];
-} __attribute__((packed));
+} _packed;
 
 struct virtio_blk_virtq {
   struct virtq_desc descs[VIRTQ_BLK_ENTRY_NUM];
@@ -84,7 +84,7 @@ struct virtio_blk_virtq {
   int queue_index;
   volatile uint16_t *used_index;
   uint16_t last_used_index;
-} __attribute__((packed));
+} _packed;
 
 struct virtio_blk_req {
   uint32_t type;
@@ -92,7 +92,7 @@ struct virtio_blk_req {
   uint64_t sector;
   uint8_t data[512];
   uint8_t status;
-} __attribute__((packed));
+} _packed;
 
 struct virtio_blk_dev {
   uint32_t paddr;
@@ -282,7 +282,7 @@ struct virtio_input_event {
   uint16_t type;
   uint16_t code;
   uint32_t value;
-} __attribute__((packed));
+} _packed;
 
 struct virtio_input_dev {
   uint32_t paddr;
@@ -388,18 +388,18 @@ struct virtq_net_avail {
   uint16_t flags;
   uint16_t idx;
   uint16_t ring[VIRTQ_NET_ENTRY_NUM];
-} __attribute__((packed));
+} _packed;
 
 struct virtq_used_item {
   uint32_t id;
   uint32_t len;
-} __attribute__((packed));
+} _packed;
 
 struct virtq_net_used {
   uint16_t flags;
   uint16_t idx;
   struct virtq_used_item ring[VIRTQ_NET_ENTRY_NUM];
-} __attribute__((packed));
+} _packed;
 
 // The overall runtime wrapper for your driver state
 struct virtio_net_queue {
@@ -421,7 +421,7 @@ struct virtio_net_header {
   uint16_t csum_start;
   uint16_t csum_offset;
   uint16_t num_buffers;
-} __attribute__((packed));
+} _packed;
 
 struct virtio_net_dev {
   uint32_t paddr;
