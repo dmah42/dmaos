@@ -110,7 +110,7 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
-- [x] **Network Stack & Utilities (VirtIO Network Card)**:
+- [-] **Network Stack & Utilities (VirtIO Network Card)**:
   - Implement a `virtio-net` MMIO network driver and raw packet system calls (`SYSCALL_NET_SEND`, `SYSCALL_NET_RECV`).
   - Create initial `nettest` utility for ARP response handling and UDP packet echo testing.
   - Future goals: Higher-level socket layer (UDP/TCP) and utilities (`ping`, `wget`, `netstat`).
