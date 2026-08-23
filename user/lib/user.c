@@ -453,5 +453,5 @@ int net_send(const uint8_t *buf, uint32_t len) {
 
 int net_recv(uint8_t *buf, uint32_t len) {
   return handle_retval(
-      syscall2(SYSCALL_NET_SEND, (uint32_t)buf, (uint32_t)len));
+      syscall2(SYSCALL_NET_RECV, (uint32_t)buf, (uint32_t)len));
 }

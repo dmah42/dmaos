@@ -25,7 +25,8 @@ qflags := -machine virt -bios default -nographic \
           -device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1 \
 					-device ramfb -display default \
 					-device virtio-keyboard-device,bus=virtio-mmio-bus.2 \
-					-netdev user,id=net0 -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3
+					-netdev user,id=net0,hostfwd=udp::9999-:9999 \
+					-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3
 
 # Directories
 KERNEL_DIR := kernel
@@ -35,7 +36,7 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat doom gfxtest hello kilo ls memtest mkdir rm snake write
+uprogs := cat doom gfxtest hello kilo ls memtest mkdir nettest rm snake write
 utxts := hello.txt lorem.txt meow.txt doom1.wad
 uconfigs := dmash.cfg
 

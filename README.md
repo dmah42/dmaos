@@ -41,6 +41,7 @@ oh, and it runs DOOM.
   - `kilo` - externally developed interactive terminal text editor using ANSI escape sequences.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
+  - `nettest` - network diagnostic test utility (ARP resolution & UDP echo).
 
 ---
 
@@ -109,9 +110,10 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
-- [ ] **Network Stack & Utilities (VirtIO Network Card)**:
-  - Implement a `virtio-net` network interface driver and a basic network stack (ARP, IP, ICMP, UDP, TCP).
-  - Create standard command-line networking utilities:
+- [x] **Network Stack & Utilities (VirtIO Network Card)**:
+  - Implement a `virtio-net` MMIO network driver and raw packet system calls (`SYSCALL_NET_SEND`, `SYSCALL_NET_RECV`).
+  - Create initial `nettest` utility for ARP response handling and UDP packet echo testing.
+  - Future goals: Higher-level socket layer (UDP/TCP) and utilities (`ping`, `wget`, `netstat`).
     - `ping` - ICMP Echo Request/Reply utility to check host reachability.
     - `traceroute` - TTL-incrementing path analyzer.
     - `telnet` - clear-text interactive remote terminal client.
