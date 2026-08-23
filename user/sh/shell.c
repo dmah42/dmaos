@@ -9,8 +9,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define MAX_PATH_DIRS 32
+#define MAX_PATH_DIRS (32)
 #define MAX_CMD_NAME (64)
+#define MAX_CONFIG_LEN (1024)
+#define MAX_HISTORY (64)
+#define MAX_CMD_LEN (128)
 
 const char *path_dirs[MAX_PATH_DIRS];
 int num_path_dirs = 0;
@@ -19,6 +22,9 @@ int num_path_dirs = 0;
 char path_buf[MAX_PATH] = "/bin";
 char prompt_fmt[256] = "# ";
 char msg_fmt[256] = "\nwelcome to dmash\n";
+
+char history[MAX_HISTORY][MAX_CMD_LEN];
+int history_count = 0;
 
 void print_formatted(const char *fmt, const char *cwd) {
   const char *p = fmt;
@@ -92,8 +98,6 @@ void print_formatted(const char *fmt, const char *cwd) {
   }
 }
 
-#define MAX_CONFIG_LEN (1024)
-
 void init_config(void) {
   char config[MAX_CONFIG_LEN];
   memset(config, 0, sizeof(config));
@@ -156,7 +160,8 @@ void init_config(void) {
       break;
     }
 
-    path_dirs[num_path_dirs++] = p;
+    path_dirs[num_path_dirs] = p;
+    ++num_path_dirs;
 
     char *colon = strchr(p, ':');
     if (colon) {
@@ -326,11 +331,133 @@ bool detect_utf8(void) {
   int width = col2 - col1;
 
   // Erase the test character from the screen
-  for (int i = 0; i < width; i++) {
+  for (int i = 0; i < width; ++i) {
     printf("\b \b");
   }
 
   return (width == 1);
+}
+
+void history_add(const char *cmd) {
+  if (!cmd || *cmd == '\0') {
+    return;
+  }
+  // Avoid duplicate if same as the most recent command
+  if (history_count > 0 && strcmp(history[history_count - 1], cmd) == 0) {
+    return;
+  }
+  if (history_count < MAX_HISTORY) {
+    strncpy(history[history_count], cmd, MAX_CMD_LEN - 1);
+    history[history_count][MAX_CMD_LEN - 1] = '\0';
+    ++history_count;
+  } else {
+    // Shift left to make room
+    for (int i = 0; i < MAX_HISTORY - 1; ++i) {
+      strcpy(history[i], history[i + 1]);
+    }
+    strncpy(history[MAX_HISTORY - 1], cmd, MAX_CMD_LEN - 1);
+    history[MAX_HISTORY - 1][MAX_CMD_LEN - 1] = '\0';
+  }
+}
+
+void read_line(char *buf, size_t max_len) {
+  int pos = 0;
+  int history_idx = history_count;
+  char saved_line[MAX_CMD_LEN] = "";
+
+  buf[0] = '\0';
+
+  while (1) {
+    char ch = getchar();
+
+    if (ch == '\r' || ch == '\n') {
+      putchar('\n');
+      buf[pos] = '\0';
+      break;
+    } else if (ch == '\b' || ch == 127) {
+      if (pos > 0) {
+        putchar('\b');
+        putchar(' ');
+        putchar('\b');
+        --pos;
+        buf[pos] = '\0';
+      }
+    } else if (ch == '\033') {
+      // Parse ANSI escape sequence
+      char seq1 = getchar();
+      if (seq1 == '[' || seq1 == 'O') {
+        char seq2 = getchar();
+        if (seq2 == 'A') {
+          // UP ARROW: Recall previous command in history
+          if (history_idx > 0) {
+            if (history_idx == history_count) {
+              // Save in-progress line
+              buf[pos] = '\0';
+              strncpy(saved_line, buf, sizeof(saved_line) - 1);
+              saved_line[sizeof(saved_line) - 1] = '\0';
+            }
+            --history_idx;
+
+            // Clear current line on screen
+            while (pos > 0) {
+              putchar('\b');
+              putchar(' ');
+              putchar('\b');
+              --pos;
+            }
+
+            // Copy and print history command
+            strncpy(buf, history[history_idx], max_len - 1);
+            buf[max_len - 1] = '\0';
+            pos = strlen(buf);
+            printf("%s", buf);
+          }
+        } else if (seq2 == 'B') {
+          // DOWN ARROW: Recall next command in history
+          if (history_idx < history_count) {
+            ++history_idx;
+
+            // Clear current line on screen
+            while (pos > 0) {
+              putchar('\b');
+              putchar(' ');
+              putchar('\b');
+              --pos;
+            }
+
+            if (history_idx == history_count) {
+              // Restore in-progress line
+              strncpy(buf, saved_line, max_len - 1);
+              buf[max_len - 1] = '\0';
+            } else {
+              strncpy(buf, history[history_idx], max_len - 1);
+              buf[max_len - 1] = '\0';
+            }
+            pos = strlen(buf);
+            printf("%s", buf);
+          }
+        } else if (seq2 >= '0' && seq2 <= '9') {
+          // Extended escape sequence: consume until terminating character
+          while (1) {
+            char next = getchar();
+            if (next == '~' || (next >= 'A' && next <= 'Z') ||
+                (next >= 'a' && next <= 'z')) {
+              break;
+            }
+          }
+        }
+      }
+    } else if (ch >= 32 && ch < 127) {
+      if (pos < (int)max_len - 1) {
+        putchar(ch);
+        buf[pos] = ch;
+        ++pos;
+        buf[pos] = '\0';
+      } else {
+        putchar('\a'); // Ring bell on buffer full
+      }
+    }
+  }
 }
 
 int main(void) {
@@ -352,30 +479,11 @@ int main(void) {
 
     print_formatted(prompt_fmt, cwd);
 
-    char cmdline[128];
-    int i = 0;
-    while (1) {
-      char ch = getchar();
-      if (ch == '\r') {
-        printf("\n");
-        cmdline[i] = '\0';
-        break;
-      } else if (ch == '\b' || ch == 127) {
-        if (i > 0) {
-          putchar('\b');
-          putchar(' ');
-          putchar('\b');
-          --i;
-        }
-      } else {
-        if (i < (int)sizeof(cmdline) - 1) {
-          putchar(ch);
-          cmdline[i] = ch;
-          ++i;
-        } else {
-          putchar('\a'); // Ring terminal bell when buffer is full
-        }
-      }
+    char cmdline[MAX_CMD_LEN];
+    read_line(cmdline, sizeof(cmdline));
+
+    if (cmdline[0] != '\0') {
+      history_add(cmdline);
     }
 
     if (strcmp(cmdline, "exit") == 0) {
@@ -385,7 +493,7 @@ int main(void) {
     } else if (strncmp(cmdline, "cd", 2) == 0 &&
                (cmdline[2] == ' ' || cmdline[2] == '\0')) {
       cd_cmd(cmdline);
-    } else {
+    } else if (cmdline[0] != '\0') {
       run_command(cmdline);
     }
   }
