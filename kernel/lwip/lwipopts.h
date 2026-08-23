@@ -21,7 +21,9 @@
 #define LWIP_DHCP 0
 #define LWIP_AUTOIP 0
 #define LWIP_IGMP 0
-#define LWIP_DNS 0
+#define LWIP_DNS 1
+#define DNS_TABLE_SIZE 4
+#define DNS_MAX_SERVERS 2
 
 #define MEM_ALIGNMENT 4
 #define MEM_SIZE (64 * 1024)

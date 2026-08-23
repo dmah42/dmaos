@@ -79,9 +79,9 @@ TOOLS_DIR := tools
 BUILD_DIR := build
 
 # Guest binaries & assets
-uprogs := cat doom gfxtest hello kilo ls memtest mkdir nettest rm snake write
+uprogs := cat doom gfxtest hello kilo ls memtest mkdir nettest nslookup rm snake write
 utxts := hello.txt lorem.txt meow.txt doom1.wad #doom2.wad doom3.wad
-uconfigs := dmash.cfg
+uconfigs := dmash.cfg net.cfg
 
 .PHONY: all clean run
 .SECONDARY:

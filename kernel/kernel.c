@@ -721,6 +721,17 @@ void handle_syscall(struct trap_frame *f) {
     f->a0 = sys_recvfrom(fd, buf, len, flags, addr, addrlen);
     break;
   }
+  case SYSCALL_DNS_LOOKUP: {
+    const char *name = (const char *)f->a0;
+    uint32_t *ip_out = (uint32_t *)f->a1;
+    if (!validate_user_string(name) ||
+        !validate_user_write_buffer(ip_out, sizeof(uint32_t))) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    f->a0 = sys_dns_lookup(name, ip_out);
+    break;
+  }
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }

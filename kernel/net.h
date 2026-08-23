@@ -64,6 +64,7 @@ int sys_sendto(int fd, const void *buf, uint32_t len, int flags,
                const void *addr, uint32_t addrlen);
 int sys_recvfrom(int fd, void *buf, uint32_t len, int flags, void *addr,
                  uint32_t *addrlen);
+int sys_dns_lookup(const char *name, uint32_t *ip_out);
 
 // Socket I/O functions
 int net_sock_read(struct socket *sock, void *buf, size_t count);

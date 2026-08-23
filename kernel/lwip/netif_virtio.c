@@ -6,7 +6,7 @@
 #include <lwip/etharp.h>
 #include <lwip/pbuf.h>
 
-static err_t virtio_netif_output(_unused struct netif *netif, struct pbuf *p) {
+err_t virtio_netif_output(_unused struct netif *netif, struct pbuf *p) {
   uint8_t buffer[1600];
   if (p->tot_len > sizeof(buffer)) {
     kprintf("virtio_netif_output: packet too large (%d bytes)\n", p->tot_len);

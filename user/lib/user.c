@@ -1,10 +1,11 @@
 #include "user.h"
+#include "arpa/inet.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
+#include "netdb.h"
+#include "netinet/in.h"
 #include "sys/k_ioctl.h"
 #include "sys/socket.h"
-#include "netinet/in.h"
-#include "arpa/inet.h"
 #include "syscall.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -488,7 +489,8 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-  return handle_retval(syscall3(SYSCALL_CONNECT, sockfd, (uint32_t)addr, addrlen));
+  return handle_retval(
+      syscall3(SYSCALL_CONNECT, sockfd, (uint32_t)addr, addrlen));
 }
 
 int listen(int sockfd, int backlog) {
@@ -496,19 +498,20 @@ int listen(int sockfd, int backlog) {
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
-  return handle_retval(syscall3(SYSCALL_ACCEPT, sockfd, (uint32_t)addr, (uint32_t)addrlen));
+  return handle_retval(
+      syscall3(SYSCALL_ACCEPT, sockfd, (uint32_t)addr, (uint32_t)addrlen));
 }
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen) {
   return handle_retval(syscall6(SYSCALL_SENDTO, sockfd, (uint32_t)buf, len,
-                               flags, (uint32_t)dest_addr, addrlen));
+                                flags, (uint32_t)dest_addr, addrlen));
 }
 
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen) {
   return handle_retval(syscall6(SYSCALL_RECVFROM, sockfd, (uint32_t)buf, len,
-                               flags, (uint32_t)src_addr, (uint32_t)addrlen));
+                                flags, (uint32_t)src_addr, (uint32_t)addrlen));
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
@@ -533,18 +536,22 @@ int inet_aton(const char *cp, struct in_addr *inp) {
   while (*cp) {
     if (*cp >= '0' && *cp <= '9') {
       parts[part] = parts[part] * 10 + (*cp - '0');
-      if (parts[part] > 255) return 0;
+      if (parts[part] > 255)
+        return 0;
     } else if (*cp == '.') {
       part++;
-      if (part > 3) return 0;
+      if (part > 3)
+        return 0;
     } else {
       return 0;
     }
     cp++;
   }
-  if (part != 3) return 0;
+  if (part != 3)
+    return 0;
   if (inp) {
-    inp->s_addr = (parts[0]) | (parts[1] << 8) | (parts[2] << 16) | (parts[3] << 24);
+    inp->s_addr =
+        (parts[0]) | (parts[1] << 8) | (parts[2] << 16) | (parts[3] << 24);
   }
   return 1;
 }
@@ -552,8 +559,60 @@ int inet_aton(const char *cp, struct in_addr *inp) {
 char *inet_ntoa(struct in_addr in) {
   static char buffer[16];
   uint32_t addr = in.s_addr;
-  snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u",
-           addr & 0xFF, (addr >> 8) & 0xFF,
-           (addr >> 16) & 0xFF, (addr >> 24) & 0xFF);
+  snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u", addr & 0xFF,
+           (addr >> 8) & 0xFF, (addr >> 16) & 0xFF, (addr >> 24) & 0xFF);
   return buffer;
+}
+
+int h_errno = 0;
+
+struct hostent s_hostent;
+char s_h_name[128];
+uint32_t s_h_addr;
+char *s_h_addr_list[2];
+
+struct hostent *gethostbyname(const char *name) {
+  if (!name || *name == '\0') {
+    h_errno = HOST_NOT_FOUND;
+    return NULL;
+  }
+
+  // Check if name is already an IPv4 dot-notation address
+  struct in_addr direct_ip;
+  if (inet_aton(name, &direct_ip)) {
+    strncpy(s_h_name, name, sizeof(s_h_name) - 1);
+    s_h_name[sizeof(s_h_name) - 1] = '\0';
+    s_h_addr = direct_ip.s_addr;
+    s_h_addr_list[0] = (char *)&s_h_addr;
+    s_h_addr_list[1] = NULL;
+
+    s_hostent.h_name = s_h_name;
+    s_hostent.h_aliases = NULL;
+    s_hostent.h_addrtype = AF_INET;
+    s_hostent.h_length = sizeof(uint32_t);
+    s_hostent.h_addr_list = s_h_addr_list;
+    h_errno = 0;
+    return &s_hostent;
+  }
+
+  uint32_t ip = 0;
+  int ret = syscall2(SYSCALL_DNS_LOOKUP, (uint32_t)name, (uint32_t)&ip);
+  if (ret < 0) {
+    h_errno = HOST_NOT_FOUND;
+    return NULL;
+  }
+
+  strncpy(s_h_name, name, sizeof(s_h_name) - 1);
+  s_h_name[sizeof(s_h_name) - 1] = '\0';
+  s_h_addr = ip;
+  s_h_addr_list[0] = (char *)&s_h_addr;
+  s_h_addr_list[1] = NULL;
+
+  s_hostent.h_name = s_h_name;
+  s_hostent.h_aliases = NULL;
+  s_hostent.h_addrtype = AF_INET;
+  s_hostent.h_length = sizeof(uint32_t);
+  s_hostent.h_addr_list = s_h_addr_list;
+  h_errno = 0;
+  return &s_hostent;
 }

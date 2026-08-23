@@ -1,5 +1,6 @@
 #include "net.h"
 #include "file.h"
+#include "fs.h"
 #include "k_errno.h"
 #include "kernel.h"
 #include "netif_virtio.h"
@@ -8,8 +9,10 @@
 #include "string.h"
 #include "virtio.h"
 
+#include <lwip/dns.h>
 #include <lwip/init.h>
 #include <lwip/ip4_addr.h>
+#include <lwip/ip_addr.h>
 #include <lwip/netif.h>
 #include <lwip/pbuf.h>
 #include <lwip/tcp.h>
@@ -34,11 +37,11 @@ struct sockaddr_in {
   char sin_zero[8];
 };
 
-static struct netif dmaos_netif;
-static struct socket sockets[MAX_SOCKETS];
-static struct rx_packet rx_packet_pool[MAX_RX_PACKETS];
+struct netif dmaos_netif;
+struct socket sockets[MAX_SOCKETS];
+struct rx_packet rx_packet_pool[MAX_RX_PACKETS];
 
-static struct rx_packet *alloc_rx_packet(void) {
+struct rx_packet *alloc_rx_packet(void) {
   for (int i = 0; i < MAX_RX_PACKETS; ++i) {
     if (!rx_packet_pool[i].in_use) {
       rx_packet_pool[i].in_use = true;
@@ -50,7 +53,7 @@ static struct rx_packet *alloc_rx_packet(void) {
   return NULL;
 }
 
-static void free_rx_packet(struct rx_packet *rx) {
+void free_rx_packet(struct rx_packet *rx) {
   if (rx) {
     if (rx->p) {
       pbuf_free(rx->p);
@@ -61,7 +64,7 @@ static void free_rx_packet(struct rx_packet *rx) {
   }
 }
 
-static struct socket *alloc_socket(int type) {
+struct socket *alloc_socket(int type) {
   for (int i = 0; i < MAX_SOCKETS; ++i) {
     if (!sockets[i].in_use) {
       memset(&sockets[i], 0, sizeof(struct socket));
@@ -76,9 +79,8 @@ static struct socket *alloc_socket(int type) {
 }
 
 // UDP Receive Callback
-static void udp_recv_callback(void *arg, _unused struct udp_pcb *pcb,
-                              struct pbuf *p, const ip_addr_t *addr,
-                              u16_t port) {
+void udp_recv_callback(void *arg, _unused struct udp_pcb *pcb, struct pbuf *p,
+                       const ip_addr_t *addr, u16_t port) {
   struct socket *s = (struct socket *)arg;
   if (!s || !s->in_use || !p) {
     if (p)
@@ -108,8 +110,8 @@ static void udp_recv_callback(void *arg, _unused struct udp_pcb *pcb,
 }
 
 // TCP Callbacks
-static err_t tcp_recv_callback(void *arg, _unused struct tcp_pcb *pcb,
-                               struct pbuf *p, _unused err_t err) {
+err_t tcp_recv_callback(void *arg, _unused struct tcp_pcb *pcb, struct pbuf *p,
+                        _unused err_t err) {
   struct socket *s = (struct socket *)arg;
   if (!s || !s->in_use) {
     if (p)
@@ -144,8 +146,8 @@ static err_t tcp_recv_callback(void *arg, _unused struct tcp_pcb *pcb,
   return ERR_OK;
 }
 
-static err_t tcp_accept_callback(void *arg, struct tcp_pcb *newpcb,
-                                 _unused err_t err) {
+err_t tcp_accept_callback(void *arg, struct tcp_pcb *newpcb,
+                          _unused err_t err) {
   struct socket *listen_sock = (struct socket *)arg;
   if (!listen_sock || !listen_sock->in_use || listen_sock->accept_count >= 8) {
     return ERR_MEM;
@@ -188,6 +190,11 @@ void net_init(void) {
 
   memset(sockets, 0, sizeof(sockets));
   memset(rx_packet_pool, 0, sizeof(rx_packet_pool));
+
+  dns_init();
+  ip_addr_t default_dns;
+  IP4_ADDR(&default_dns, 10, 0, 2, 3);
+  dns_setserver(0, &default_dns);
 
   kprintf("net: lwIP initialized with IP 10.0.2.15/24 (Gateway: 10.0.2.2)\n");
 }
@@ -632,4 +639,112 @@ void net_sock_close(struct socket *s) {
   s->rx_tail = NULL;
   s->in_use = false;
   s->state = SOCK_CLOSED;
+}
+
+// ---------------------------------------------------------------------------
+// DNS Resolution
+// ---------------------------------------------------------------------------
+
+bool net_cfg_loaded = false;
+
+void net_load_config(void) {
+  if (net_cfg_loaded) {
+    return;
+  }
+  net_cfg_loaded = true;
+
+  struct inode *ip = namei("/cfg/net.cfg");
+  if (!ip) {
+    return;
+  }
+
+  char buf[256];
+  memset(buf, 0, sizeof(buf));
+  int n = readi(ip, buf, 0, sizeof(buf) - 1);
+  iput(ip);
+
+  if (n <= 0) {
+    return;
+  }
+
+  // Parse NAMESERVER=<ip>
+  char *ns = strstr(buf, "NAMESERVER=");
+  if (ns) {
+    ns += strlen("NAMESERVER=");
+    while (*ns == ' ' || *ns == '\t') {
+      ++ns;
+    }
+    char ip_str[32];
+    int len = 0;
+    while (ns[len] && ns[len] != '\r' && ns[len] != '\n' && ns[len] != ' ' &&
+           len < (int)sizeof(ip_str) - 1) {
+      ip_str[len] = ns[len];
+      ++len;
+    }
+    ip_str[len] = '\0';
+
+    ip_addr_t server_ip;
+    if (ip4addr_aton(ip_str, &server_ip)) {
+      dns_setserver(0, &server_ip);
+      kprintf("net: DNS nameserver set to %s from /cfg/net.cfg\n", ip_str);
+    }
+  }
+}
+
+struct dns_query_state {
+  bool done;
+  err_t err;
+  ip_addr_t addr;
+};
+
+void dns_found_cb(_unused const char *name, const ip_addr_t *ipaddr,
+                  void *callback_arg) {
+  struct dns_query_state *state = (struct dns_query_state *)callback_arg;
+  if (ipaddr != NULL) {
+    state->addr = *ipaddr;
+    state->err = ERR_OK;
+  } else {
+    state->err = ERR_VAL;
+  }
+  state->done = true;
+}
+
+int sys_dns_lookup(const char *name, uint32_t *ip_out) {
+  if (!name || !ip_out) {
+    return ERR_INVALID_ARGUMENT;
+  }
+
+  net_load_config();
+
+  ip_addr_t resolved;
+  struct dns_query_state state;
+  state.done = false;
+  state.err = ERR_INPROGRESS;
+
+  err_t err = dns_gethostbyname(name, &resolved, dns_found_cb, &state);
+  if (err == ERR_OK) {
+    *ip_out = ip_addr_get_ip4_u32(&resolved);
+    return 0;
+  } else if (err != ERR_INPROGRESS) {
+    return ERR_NOT_FOUND;
+  }
+
+  uint32_t start_ms = uptime_ms();
+  while (!state.done) {
+    net_poll();
+    if (state.done) {
+      break;
+    }
+    if (uptime_ms() - start_ms > 5000) {
+      return ERR_IO;
+    }
+    yield();
+  }
+
+  if (state.err == ERR_OK) {
+    *ip_out = ip_addr_get_ip4_u32(&state.addr);
+    return 0;
+  }
+
+  return ERR_NOT_FOUND;
 }
