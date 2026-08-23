@@ -49,9 +49,7 @@ ldflags := -fuse-ld=lld
 SYSROOT := third_party/newlib
 NEWLIB_LIBS := $(SYSROOT)/lib/libc.a $(SYSROOT)/lib/libm.a $(SYSROOT)/lib/libgcc.a
 
-$(NEWLIB_LIBS):
-	@echo "[dmaOS Build] Newlib libraries missing. Auto-fetching toolchain..."
-	tools/update_newlib.sh
+.DEFAULT_GOAL := all
 
 user_cflags := $(cflags) -isystem $(SYSROOT)/include \
                -include user/lib/user.h \
@@ -108,6 +106,10 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
 	$(cc) $(cflags) $(KERNEL_INCLUDES) -MMD -MP -c -o $@ $<
 
 # ----------------- User Library -----------------
+
+$(NEWLIB_LIBS):
+	@echo "[dmaOS Build] Newlib libraries missing. Auto-fetching toolchain..."
+	tools/update_newlib.sh
 
 USER_LIB_OBJS := $(addprefix $(BUILD_DIR)/user/lib/, user.o)
 
