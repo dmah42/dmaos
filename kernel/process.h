@@ -2,6 +2,7 @@
 
 #include "file.h"
 #include "fs.h"
+#include "page.h"
 #include "stdlib.h"
 
 #define PROCS_MAX (8) // maximum number of processes
@@ -13,10 +14,10 @@ struct Process {
   enum ProcState state;
   int exit_code;
   vaddr_t sp;
-  uint32_t *page_table;
+  pte_t *page_table;
   struct inode *cwd;
-  uint32_t heap_start;
-  uint32_t heap_end;
+  vaddr_t heap_start;
+  vaddr_t heap_end;
   struct File *ofile[NUM_FILES_PER_PROCESS];
   char name[16];
   char cwd_path[MAX_PATH];

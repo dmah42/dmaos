@@ -37,17 +37,17 @@ static int stdin_flags = 0;
 // Syscall wrappers
 // ---------------------------------------------------------------------------
 
-static int syscall1(int sysno, uint32_t arg0) {
-  register int a0 __asm__("a0") = arg0;
-  register int a3 __asm__("a3") = sysno;
+static intptr_t syscall1(int sysno, uintptr_t arg0) {
+  register intptr_t a0 __asm__("a0") = (intptr_t)arg0;
+  register intptr_t a3 __asm__("a3") = sysno;
   __asm__ __volatile__("ecall" : "=r"(a0) : "r"(a0), "r"(a3) : "memory");
   return a0;
 }
 
-static int syscall2(int sysno, uint32_t arg0, uint32_t arg1) {
-  register int a0 __asm__("a0") = arg0;
-  register int a1 __asm__("a1") = arg1;
-  register int a3 __asm__("a3") = sysno;
+static intptr_t syscall2(int sysno, uintptr_t arg0, uintptr_t arg1) {
+  register intptr_t a0 __asm__("a0") = (intptr_t)arg0;
+  register intptr_t a1 __asm__("a1") = (intptr_t)arg1;
+  register intptr_t a3 __asm__("a3") = sysno;
   __asm__ __volatile__("ecall"
                        : "=r"(a0)
                        : "r"(a0), "r"(a1), "r"(a3)
@@ -55,11 +55,12 @@ static int syscall2(int sysno, uint32_t arg0, uint32_t arg1) {
   return a0;
 }
 
-static int syscall3(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
-  register int a0 __asm__("a0") = arg0;
-  register int a1 __asm__("a1") = arg1;
-  register int a2 __asm__("a2") = arg2;
-  register int a3 __asm__("a3") = sysno;
+static intptr_t syscall3(int sysno, uintptr_t arg0, uintptr_t arg1,
+                         uintptr_t arg2) {
+  register intptr_t a0 __asm__("a0") = (intptr_t)arg0;
+  register intptr_t a1 __asm__("a1") = (intptr_t)arg1;
+  register intptr_t a2 __asm__("a2") = (intptr_t)arg2;
+  register intptr_t a3 __asm__("a3") = sysno;
   __asm__ __volatile__("ecall"
                        : "+r"(a0)
                        : "r"(a1), "r"(a2), "r"(a3)
@@ -67,15 +68,16 @@ static int syscall3(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
   return a0;
 }
 
-static int syscall6(int sysno, uint32_t arg0, uint32_t arg1, uint32_t arg2,
-                    uint32_t arg3, uint32_t arg4, uint32_t arg5) {
-  register int a0 __asm__("a0") = arg0;
-  register int a1 __asm__("a1") = arg1;
-  register int a2 __asm__("a2") = arg2;
-  register int a3 __asm__("a3") = sysno;
-  register int a4 __asm__("a4") = arg3;
-  register int a5 __asm__("a5") = arg4;
-  register int a6 __asm__("a6") = arg5;
+static intptr_t syscall6(int sysno, uintptr_t arg0, uintptr_t arg1,
+                         uintptr_t arg2, uintptr_t arg3, uintptr_t arg4,
+                         uintptr_t arg5) {
+  register intptr_t a0 __asm__("a0") = (intptr_t)arg0;
+  register intptr_t a1 __asm__("a1") = (intptr_t)arg1;
+  register intptr_t a2 __asm__("a2") = (intptr_t)arg2;
+  register intptr_t a3 __asm__("a3") = sysno;
+  register intptr_t a4 __asm__("a4") = (intptr_t)arg3;
+  register intptr_t a5 __asm__("a5") = (intptr_t)arg4;
+  register intptr_t a6 __asm__("a6") = (intptr_t)arg5;
   __asm__ __volatile__("ecall"
                        : "+r"(a0)
                        : "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6)
@@ -97,15 +99,20 @@ static int translate_error(int err) {
   return val;
 }
 
-static int handle_retval(int ret) {
+static intptr_t handle_retval(intptr_t ret) {
   if (ret < 0) {
-    errno = translate_error(ret);
+    errno = translate_error((int)ret);
     return -1;
   }
   return ret;
 }
 
 uint64_t uptime(void) {
+#if __riscv_xlen == 64
+  uint64_t val;
+  __asm__ __volatile__("rdtime %0" : "=r"(val));
+  return val;
+#else
   uint32_t low, high, temp;
   __asm__ __volatile__("1:\n"
                        "rdtimeh %0\n"
@@ -114,6 +121,7 @@ uint64_t uptime(void) {
                        "bne %0, %2, 1b\n"
                        : "=&r"(high), "=&r"(low), "=&r"(temp));
   return ((uint64_t)high << 32) | low;
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -121,10 +129,10 @@ uint64_t uptime(void) {
 // ---------------------------------------------------------------------------
 
 void yield(void) { syscall1(SYSCALL_YIELD, 0); }
-int spawn(const char *name) { return syscall1(SYSCALL_SPAWN, (uint32_t)name); }
+int spawn(const char *name) { return syscall1(SYSCALL_SPAWN, (uintptr_t)name); }
 int wait(int pid) { return syscall1(SYSCALL_WAIT, pid); }
 int kmesg(char *buf, int buf_len) {
-  return syscall2(SYSCALL_KMESG, (uint32_t)buf, buf_len);
+  return syscall2(SYSCALL_KMESG, (uintptr_t)buf, buf_len);
 }
 
 int getchar_nonblock(void) {
@@ -233,7 +241,7 @@ int _open(const char *path, int flags, ...) {
   if (flags & O_APPEND)
     kernel_flags |= FILECTRL_APPEND;
 
-  return handle_retval(syscall2(SYSCALL_OPEN, (uint32_t)path, kernel_flags));
+  return handle_retval(syscall2(SYSCALL_OPEN, (uintptr_t)path, kernel_flags));
 }
 
 int _read(int fd, void *buf, size_t count) {
@@ -293,12 +301,12 @@ int _read(int fd, void *buf, size_t count) {
       return num_read;
     }
   }
-  return handle_retval(syscall3(SYSCALL_READ, fd, (uint32_t)buf, count));
+  return handle_retval(syscall3(SYSCALL_READ, fd, (uintptr_t)buf, count));
 }
 
 int _stat(const char *path, struct stat *st) {
   struct k_stat kst;
-  int ret = syscall2(SYSCALL_STAT, (uint32_t)path, (uint32_t)&kst);
+  int ret = syscall2(SYSCALL_STAT, (uintptr_t)path, (uintptr_t)&kst);
   if (ret < 0) {
     errno = translate_error(ret);
     return -1;
@@ -310,13 +318,13 @@ int _stat(const char *path, struct stat *st) {
 }
 
 int _unlink(const char *path) {
-  return handle_retval(syscall1(SYSCALL_RM, (uint32_t)path));
+  return handle_retval(syscall1(SYSCALL_RM, (uintptr_t)path));
 }
 
 int framebuffer_present(uint32_t *framebuffer, uint32_t width,
                         uint32_t height) {
   return handle_retval(syscall3(SYSCALL_PRESENT_FRAMEBUFFER,
-                                (uint32_t)framebuffer, width, height));
+                                (uintptr_t)framebuffer, width, height));
 }
 
 int _write(int fd, const void *buf, size_t count) {
@@ -326,7 +334,7 @@ int _write(int fd, const void *buf, size_t count) {
       syscall1(SYSCALL_PUTCHAR, cbuf[i]);
     return count;
   }
-  return handle_retval(syscall3(SYSCALL_WRITE, fd, (uint32_t)buf, count));
+  return handle_retval(syscall3(SYSCALL_WRITE, fd, (uintptr_t)buf, count));
 }
 
 int _fcntl(int fd, int cmd, int arg) {
@@ -408,15 +416,15 @@ int _nanosleep(const struct timespec *req, struct timespec *rem) {
 }
 
 void *_sbrk(int incr) {
-  return (void *)handle_retval(syscall1(SYSCALL_SBRK, incr));
+  return (void *)handle_retval(syscall1(SYSCALL_SBRK, (uintptr_t)incr));
 }
 
 int chdir(const char *path) {
-  return handle_retval(syscall1(SYSCALL_CHDIR, (uint32_t)path));
+  return handle_retval(syscall1(SYSCALL_CHDIR, (uintptr_t)path));
 }
 
 int mkdir(const char *path, mode_t mode) {
-  return handle_retval(syscall2(SYSCALL_MKDIR, (uint32_t)path, (uint32_t)mode));
+  return handle_retval(syscall2(SYSCALL_MKDIR, (uintptr_t)path, (uintptr_t)mode));
 }
 
 int ftruncate(int fd, off_t length) {
@@ -424,7 +432,7 @@ int ftruncate(int fd, off_t length) {
 }
 
 char *getcwd(char *buf, size_t size) {
-  int ret = syscall2(SYSCALL_GETCWD, (uint32_t)buf, (uint32_t)size);
+  int ret = syscall2(SYSCALL_GETCWD, (uintptr_t)buf, (uintptr_t)size);
   if (ret < 0) {
     errno = translate_error(ret);
     return NULL;
@@ -463,17 +471,17 @@ int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) {
 
 int input_poll(uint16_t *code, int *pressed) {
   return handle_retval(
-      syscall2(SYSCALL_INPUT_POLL, (uint32_t)code, (uint32_t)pressed));
+      syscall2(SYSCALL_INPUT_POLL, (uintptr_t)code, (uintptr_t)pressed));
 }
 
 int net_send(const uint8_t *buf, uint32_t len) {
   return handle_retval(
-      syscall2(SYSCALL_NET_SEND, (uint32_t)buf, (uint32_t)len));
+      syscall2(SYSCALL_NET_SEND, (uintptr_t)buf, (uintptr_t)len));
 }
 
 int net_recv(uint8_t *buf, uint32_t len) {
   return handle_retval(
-      syscall2(SYSCALL_NET_RECV, (uint32_t)buf, (uint32_t)len));
+      syscall2(SYSCALL_NET_RECV, (uintptr_t)buf, (uintptr_t)len));
 }
 
 // ---------------------------------------------------------------------------
@@ -485,12 +493,12 @@ int socket(int domain, int type, int protocol) {
 }
 
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-  return handle_retval(syscall3(SYSCALL_BIND, sockfd, (uint32_t)addr, addrlen));
+  return handle_retval(syscall3(SYSCALL_BIND, sockfd, (uintptr_t)addr, addrlen));
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
   return handle_retval(
-      syscall3(SYSCALL_CONNECT, sockfd, (uint32_t)addr, addrlen));
+      syscall3(SYSCALL_CONNECT, sockfd, (uintptr_t)addr, addrlen));
 }
 
 int listen(int sockfd, int backlog) {
@@ -499,19 +507,19 @@ int listen(int sockfd, int backlog) {
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   return handle_retval(
-      syscall3(SYSCALL_ACCEPT, sockfd, (uint32_t)addr, (uint32_t)addrlen));
+      syscall3(SYSCALL_ACCEPT, sockfd, (uintptr_t)addr, (uintptr_t)addrlen));
 }
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen) {
-  return handle_retval(syscall6(SYSCALL_SENDTO, sockfd, (uint32_t)buf, len,
-                                flags, (uint32_t)dest_addr, addrlen));
+  return handle_retval(syscall6(SYSCALL_SENDTO, sockfd, (uintptr_t)buf, len,
+                                flags, (uintptr_t)dest_addr, addrlen));
 }
 
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen) {
-  return handle_retval(syscall6(SYSCALL_RECVFROM, sockfd, (uint32_t)buf, len,
-                                flags, (uint32_t)src_addr, (uint32_t)addrlen));
+  return handle_retval(syscall6(SYSCALL_RECVFROM, sockfd, (uintptr_t)buf, len,
+                                flags, (uintptr_t)src_addr, (uintptr_t)addrlen));
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
@@ -596,7 +604,7 @@ struct hostent *gethostbyname(const char *name) {
   }
 
   uint32_t ip = 0;
-  int ret = syscall2(SYSCALL_DNS_LOOKUP, (uint32_t)name, (uint32_t)&ip);
+  int ret = syscall2(SYSCALL_DNS_LOOKUP, (uintptr_t)name, (uintptr_t)&ip);
   if (ret < 0) {
     h_errno = HOST_NOT_FOUND;
     return NULL;

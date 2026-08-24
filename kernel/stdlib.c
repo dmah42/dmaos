@@ -1,6 +1,11 @@
 #include "stdlib.h"
 
 uint64_t uptime(void) {
+#if __riscv_xlen == 64
+  uint64_t val;
+  __asm__ __volatile__("rdtime %0" : "=r"(val));
+  return val;
+#else
   uint32_t low, high, temp;
   __asm__ __volatile__("1:\n"
                        "rdtimeh %0\n"
@@ -9,6 +14,7 @@ uint64_t uptime(void) {
                        "bne %0, %2, 1b\n"
                        : "=&r"(high), "=&r"(low), "=&r"(temp));
   return ((uint64_t)high << 32) | low;
+#endif
 }
 
 uint32_t uptime_ms(void) {

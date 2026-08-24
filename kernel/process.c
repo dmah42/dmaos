@@ -71,10 +71,10 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
 
   // Stack callee-saved registers. These register values will be restored in
   // the first context switch in switch_context.
-  uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
+  reg_t *sp = (reg_t *)&proc->stack[sizeof(proc->stack)];
 
   // Map kernel pages.
-  uint32_t *page_table = (uint32_t *)alloc_pages(1);
+  pte_t *page_table = (pte_t *)alloc_pages(1);
   for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end;
        paddr += PAGE_SIZE) {
     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
@@ -99,7 +99,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   paddr_t last_page = 0;
-  for (uint32_t off = 0; off < size; off += PAGE_SIZE) {
+  for (vaddr_t off = 0; off < size; off += PAGE_SIZE) {
     paddr_t page = alloc_pages(1);
 
     size_t remain = size - off;
@@ -123,7 +123,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   // Copy arguments to the user stack
-  uint32_t user_sp = USER_BASE + size;
+  vaddr_t user_sp = USER_BASE + size;
   if (argc > 0 && last_page != 0) {
     uint32_t stack_top_offset = size % PAGE_SIZE;
     if (stack_top_offset == 0) {
@@ -134,7 +134,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     uint8_t *kernel_sp = kernel_stack_top;
 
     // Copy argument strings
-    uint32_t user_argv_va[16];
+    vaddr_t user_argv_va[16];
     for (int j = argc - 1; j >= 0; --j) {
       size_t len = strlen(argv[j]) + 1;
       kernel_sp -= len;
@@ -145,11 +145,11 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     }
 
     // Align stack pointer to 16-byte boundary
-    kernel_sp = (uint8_t *)((uint32_t)kernel_sp & ~0xF);
+    kernel_sp = (uint8_t *)((uintptr_t)kernel_sp & ~0xF);
 
     // Write argv array of pointers
-    kernel_sp -= (argc + 1) * sizeof(uint32_t);
-    uint32_t *argv_array = (uint32_t *)kernel_sp;
+    kernel_sp -= (argc + 1) * sizeof(vaddr_t);
+    vaddr_t *argv_array = (vaddr_t *)kernel_sp;
     for (int j = 0; j < argc; ++j) {
       argv_array[j] = user_argv_va[j];
     }
@@ -160,32 +160,32 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   }
 
   // Initialize process register state
-  *--sp = 0;       // s11
-  *--sp = 0;       // s10
-  *--sp = 0;       // s9
-  *--sp = 0;       // s8
-  *--sp = 0;       // s7
-  *--sp = 0;       // s6
-  *--sp = 0;       // s5
-  *--sp = 0;       // s4
-  *--sp = 0;       // s3
-  *--sp = user_sp; // s2 (will be loaded into a1 / argv)
-  *--sp = argc;    // s1 (will be loaded into a0 / argc)
-  *--sp = user_sp; // s0 (will be loaded into sp / user stack pointer)
-  *--sp = (uint32_t)user_entry; // ra
+  *--sp = 0;                 // s11
+  *--sp = 0;                 // s10
+  *--sp = 0;                 // s9
+  *--sp = 0;                 // s8
+  *--sp = 0;                 // s7
+  *--sp = 0;                 // s6
+  *--sp = 0;                 // s5
+  *--sp = 0;                 // s4
+  *--sp = 0;                 // s3
+  *--sp = (reg_t)user_sp;    // s2 (will be loaded into a1 / argv)
+  *--sp = (reg_t)argc;       // s1 (will be loaded into a0 / argc)
+  *--sp = (reg_t)user_sp;    // s0 (will be loaded into sp / user stack pointer)
+  *--sp = (reg_t)user_entry; // ra
 
   // Initialize Process
   proc->pid = i + 1;
   proc->state = PROCSTATE_RUNNABLE;
   proc->page_table = page_table;
-  proc->sp = (uint32_t)sp;
+  proc->sp = (vaddr_t)sp;
   proc->heap_start = USER_BASE + align_up(size, PAGE_SIZE);
   proc->heap_end = proc->heap_start;
   if (argv != NULL && argc > 0) {
     strncpy(proc->name, argv[0], sizeof(proc->name) - 1);
     proc->name[sizeof(proc->name) - 1] = '\0';
     kprintf(YELLOW "Process created: PID=%d, name=%s, image_size=%d\n" DEFAULT,
-            proc->pid, argv[0], size);
+            proc->pid, argv[0], (int)size);
   } else {
     strncpy(proc->name, "idle/init", sizeof(proc->name) - 1);
     proc->name[sizeof(proc->name) - 1] = '\0';
@@ -219,41 +219,59 @@ void free_process_pages(struct Process *proc) {
   if (!proc->page_table)
     return;
 
-  uint32_t *t1 = proc->page_table;
-  for (uint32_t vpn1 = 0; vpn1 < 1024; vpn1++) {
-    uint32_t entry1 = t1[vpn1];
-    if (entry1 & PAGE_V) {
-      paddr_t pt0_paddr = (entry1 >> 10) * PAGE_SIZE;
-      uint32_t *t0 = (uint32_t *)pt0_paddr;
-
-      if (vpn1 < 512) {
-        for (uint32_t vpn0 = 0; vpn0 < 1024; vpn0++) {
-          uint32_t entry0 = t0[vpn0];
-          if (entry0 & PAGE_V) {
-            paddr_t page_paddr = (entry0 >> 10) * PAGE_SIZE;
-            if (page_paddr >= (paddr_t)__free_ram &&
-                page_paddr < (paddr_t)__free_ram_end) {
-              free_pages(page_paddr, 1);
-            }
-          }
-        }
-      }
-
-      free_pages(pt0_paddr, 1);
-    }
-  }
-
-  free_pages((paddr_t)t1, 1);
+  free_page_table(proc->page_table, PAGE_LEVELS);
   proc->page_table = NULL;
 }
 
 // TODO: consider benefits of storing the context in the Process.
-__attribute__((naked)) void switch_context(uint32_t *prev_sp,
-                                           uint32_t *next_sp) {
+#if __riscv_xlen == 64
+__attribute__((naked)) void switch_context(vaddr_t *prev_sp, vaddr_t *next_sp) {
   __asm__ __volatile__(
-      // Save callee-saved registers onto the current process's stack.
-      "addi sp, sp, -13 * 4\n" // Allocate stack space for 13 4-byte registers
-      "sw ra,  0  * 4(sp)\n"   // Save callee-saved registers only
+      // Save callee-saved registers onto the current process's stack (13 8-byte
+      // registers).
+      "addi sp, sp, -13 * 8\n"
+      "sd ra,  0  * 8(sp)\n"
+      "sd s0,  1  * 8(sp)\n"
+      "sd s1,  2  * 8(sp)\n"
+      "sd s2,  3  * 8(sp)\n"
+      "sd s3,  4  * 8(sp)\n"
+      "sd s4,  5  * 8(sp)\n"
+      "sd s5,  6  * 8(sp)\n"
+      "sd s6,  7  * 8(sp)\n"
+      "sd s7,  8  * 8(sp)\n"
+      "sd s8,  9  * 8(sp)\n"
+      "sd s9,  10 * 8(sp)\n"
+      "sd s10, 11 * 8(sp)\n"
+      "sd s11, 12 * 8(sp)\n"
+
+      // Switch the stack pointer.
+      "sd sp, (a0)\n"
+      "ld sp, (a1)\n"
+
+      // Restore callee-saved registers from the next process's stack.
+      "ld ra,  0  * 8(sp)\n"
+      "ld s0,  1  * 8(sp)\n"
+      "ld s1,  2  * 8(sp)\n"
+      "ld s2,  3  * 8(sp)\n"
+      "ld s3,  4  * 8(sp)\n"
+      "ld s4,  5  * 8(sp)\n"
+      "ld s5,  6  * 8(sp)\n"
+      "ld s6,  7  * 8(sp)\n"
+      "ld s7,  8  * 8(sp)\n"
+      "ld s8,  9  * 8(sp)\n"
+      "ld s9,  10 * 8(sp)\n"
+      "ld s10, 11 * 8(sp)\n"
+      "ld s11, 12 * 8(sp)\n"
+      "addi sp, sp, 13 * 8\n"
+      "ret\n");
+}
+#else
+__attribute__((naked)) void switch_context(vaddr_t *prev_sp, vaddr_t *next_sp) {
+  __asm__ __volatile__(
+      // Save callee-saved registers onto the current process's stack (13 4-byte
+      // registers).
+      "addi sp, sp, -13 * 4\n"
+      "sw ra,  0  * 4(sp)\n"
       "sw s0,  1  * 4(sp)\n"
       "sw s1,  2  * 4(sp)\n"
       "sw s2,  3  * 4(sp)\n"
@@ -268,11 +286,11 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
       "sw s11, 12 * 4(sp)\n"
 
       // Switch the stack pointer.
-      "sw sp, (a0)\n" // *prev_sp = sp;
-      "lw sp, (a1)\n" // Switch stack pointer (sp) here
+      "sw sp, (a0)\n"
+      "lw sp, (a1)\n"
 
       // Restore callee-saved registers from the next process's stack.
-      "lw ra,  0  * 4(sp)\n" // Restore callee-saved registers only
+      "lw ra,  0  * 4(sp)\n"
       "lw s0,  1  * 4(sp)\n"
       "lw s1,  2  * 4(sp)\n"
       "lw s2,  3  * 4(sp)\n"
@@ -285,9 +303,10 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
       "lw s9,  10 * 4(sp)\n"
       "lw s10, 11 * 4(sp)\n"
       "lw s11, 12 * 4(sp)\n"
-      "addi sp, sp, 13 * 4\n" // We've popped 13 4-byte registers from the stack
+      "addi sp, sp, 13 * 4\n"
       "ret\n");
 }
+#endif
 
 void yield() {
   // Search for any runnable process
@@ -307,19 +326,21 @@ void yield() {
 
   // Store a pointer to the kernel stack for the current process before
   // switching (see exception handler for details).
+  reg_t satp_val = SATP_MODE | SATP_PPN(next->page_table);
+
   __asm__ __volatile__(
       "sfence.vma\n"
       "csrw satp, %[satp]\n"
       "sfence.vma\n"
       "csrw sscratch, %[sscratch]\n"
       :
-      : [satp] "r"(SATP_SV32 | PAGE_TABLE_TO_INDEX(next->page_table)),
-        [sscratch] "r"((uint32_t)&next->stack[sizeof(next->stack)]));
+      : [satp] "r"(satp_val), [sscratch] "r"((uintptr_t)&next->stack[sizeof(
+                                  next->stack)]));
 
   // SWITCH!
   struct Process *prev = current_proc;
   current_proc = next;
-  switch_context(&prev->sp, &next->sp);
+  switch_context((vaddr_t *)&prev->sp, (vaddr_t *)&next->sp);
 }
 
 /*

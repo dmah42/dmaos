@@ -9,21 +9,21 @@ SECTIONS {
     *(.text .text.*);
   }
 
-  .rodata : ALIGN(4) {
+  .rodata : ALIGN(8) {
     *(.rodata .rodata.*);
   }
 
-  .data : ALIGN(4) {
+  .data : ALIGN(8) {
     *(.data .data.*);
   }
 
-  .bss : ALIGN(4) {
+  .bss : ALIGN(8) {
     __bss = .;
     *(.bss .bss.* .sbss .sbss.*);
     __bss_end = .;
   }
 
-  . = ALIGN(4);
+  . = ALIGN(8);
   . += 128 * 1024;  /* 128KB stack */
   __stack_top = .;
 

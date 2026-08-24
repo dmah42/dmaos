@@ -1,6 +1,6 @@
 # dmaOS
 
-dmaOS is a lightweight, custom 32-bit RISC-V operating system designed to run on the QEMU `virt` machine. It features a page-mapped kernel, a cooperative scheduler, a multi-device virtual filesystem with persistence, and a custom user shell.
+dmaOS is a lightweight, custom 32-bit and 64-bit RISC-V operating system designed to run on the QEMU `virt` machine. It features a page-mapped kernel (SV32 / SV39), a cooperative scheduler, a multi-device virtual filesystem with persistence, an integrated lwIP network stack with BSD sockets, and a custom user shell.
 
 oh, and it runs DOOM.
 
@@ -9,11 +9,13 @@ oh, and it runs DOOM.
 ## Current Project Status
 
 ### 1. Kernel & Memory Management
-- **CPU Target**: 32-bit RISC-V (`riscv32-unknown-elf`).
-- **Memory Mapping**: SV32 paging system with kernel pages mapped directly and user pages mapped dynamically.
+- **CPU Targets**: 
+  - 32-bit RISC-V: `riscv32-unknown-elf` (`rv32im`, `ilp32`).
+  - 64-bit RISC-V: `riscv64-unknown-elf` (`rv64imac`, `lp64`).
+- **Memory Mapping**: Universal multi-level paging system supporting **SV32** (2-level) on RV32 and **SV39** (3-level) on RV64 with dynamic user memory mapping and isolated page tables.
 - **Multitasking**: Cooperative scheduler with context switching, process spawning, and parent-child execution waiting.
-- **System Calls**: Parameter-specific assembly syscall routines (`syscall1` to `syscall4`) routing user space traps (`ecall`) to kernel handlers. Returns detailed self-documenting negative error codes (`enum Errno` from `errno.h`) translated via `strerror` in user space.
-- **Dynamic Memory Allocation**: Standard heap allocator (`malloc`, `free`, `calloc`, `realloc`) using a first-fit boundary-tag (header/footer) design in the user-space standard library, backed by the `sbrk` system call which dynamically maps physical pages into the user address space.
+- **System Calls**: Parameter-specific assembly syscall routines routing user space traps (`ecall`) to kernel handlers. Returns self-documenting negative error codes (`enum Errno` from `errno.h`) translated via `strerror` in user space.
+- **Dynamic Memory Allocation**: Standard heap allocator (`malloc`, `free`, `calloc`, `realloc`) backed by the `sbrk` system call which dynamically maps physical pages into the user address space.
 
 ### 2. Block Drivers & Mounting
 - **VirtIO MMIO**: Support for two concurrent VirtIO block device controllers mapped to separate MMIO slots (`0x10001000` and `0x10002000`) and distinct QEMU buses.
@@ -22,7 +24,7 @@ oh, and it runs DOOM.
   - **Device 1 (`data.img`)**: Persistent data drive dynamically mounted at `/home`.
 
 ### 3. Filesystem Layer
-- **Staging-Based Image Builds**: The build system compiles and stages the entire filesystem tree under `build/root/` on the host, and the filesystem image utility `mkfs` recursively walks this staging root to produce the raw disk images.
+- **Staging-Based Image Builds**: The build system compiles and stages the entire filesystem tree under `build/$(ARCH)/root/` on the host, and the filesystem image utility `mkfs` recursively walks this staging root to produce raw disk images.
 - **Directories & Path Resolution**: Dynamic path resolution (`namei`/`namex`) with cross-boundary mount traversal and normalized path tracking.
 - **Stateful File Descriptors**: Process-level open file descriptor tracking (`proc->ofile` up to `NUM_FILES_PER_PROCESS`) mapped to a global descriptor table (`GLOBAL_OPEN_FILE_LIMIT`), with automatic cleanup and console warning prints on memory leak detection during process exit.
 - **Write Protections**: Writes, folder creations, and deletions are prohibited on Device 0 and allowed only under the persistent `/home` directory (Device 1).
@@ -38,7 +40,7 @@ oh, and it runs DOOM.
 ### 5. Shell & Command Utilities
 - **dmash Shell**: Standard shell with configuration parsing for path, prompt, etc.
 - **User Library**:
-  - Powered by the Newlib user-space standard library.
+  - Powered by the Newlib user-space standard library with dedicated 32-bit and 64-bit multilib configurations.
 - **User Utilities**:
   - `cat` - read and display file contents.
   - `ls` - list directory structures.
@@ -49,13 +51,14 @@ oh, and it runs DOOM.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
   - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
+  - `doom` - classic DOOM (shareware episode 1) via `doomgeneric`.
 
 ---
 
 ## Build & Run Instructions
 
 ### Prerequisites
-Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-system-riscv32`):
+Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-system-riscv32`, `qemu-system-riscv64`):
 
 - **macOS (Homebrew)**:
   ```bash
@@ -64,26 +67,40 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
 
 - **Linux / WSL (Ubuntu/Debian)**:
   ```bash
-  sudo apt update && sudo apt install -y clang lld llvm qemu-system-misc make
-opensbi
+  sudo apt update && sudo apt install -y clang lld llvm qemu-system-misc make opensbi
   ```
 
 - **DOOM WAD Asset**:
   Obtain `doom1.wad` (Shareware DOOM WAD) and place it in the `disk/` directory (`disk/doom1.wad`).
 
-
 ### Build & Execution Commands
-- **Clean builds**:
+
+#### 32-Bit Target (Default)
+- **Compile all binaries and build disk image**:
   ```bash
-  make clean
+  make ARCH=riscv32 all   # or simply: make
   ```
-- **Compile all binaries and format disk images**:
+- **Run in 32-bit QEMU**:
   ```bash
-  make
+  make ARCH=riscv32 run   # or simply: make run
   ```
-- **Run the OS inside QEMU**:
+- **Clean 32-bit build artifacts**:
   ```bash
-  make run
+  make ARCH=riscv32 clean # or simply: make clean
+  ```
+
+#### 64-Bit Target
+- **Compile all binaries and build disk image**:
+  ```bash
+  make ARCH=riscv64 all
+  ```
+- **Run in 64-bit QEMU**:
+  ```bash
+  make ARCH=riscv64 run
+  ```
+- **Clean 64-bit build artifacts**:
+  ```bash
+  make ARCH=riscv64 clean
   ```
 
 ---
@@ -111,10 +128,11 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
+- [x] **64-Bit RISC-V Architecture Port (RV64 / SV39)**:
+  - Ported kernel, userland, paging, drivers, and newlib to `riscv64`.
 - [x] **Standard C Library Integration (Newlib)**:
-  - Replaced the homegrown standard library with standard **Newlib**.
-  - Mapped Newlib system call stubs (`_read`, `_write`, `_open`, `_close`, `_sbrk`, `_stat`) to our kernel ABI using a defensive translation layer in `user/lib`.
-
+  - Replaced the homegrown standard library with standard **Newlib** (supporting both RV32 and RV64 multilibs).
+  - Mapped Newlib system call stubs (`_read`, `_write`, `_open`, `_close`, `_sbrk`, `_stat`) to our kernel ABI.
 - [ ] **Standard Streams & Shell Piping**:
   - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers to enable shell command pipelines (e.g., `cat file.txt | grep query`).
 

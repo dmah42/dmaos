@@ -24,7 +24,7 @@
 #define SSTATUS_SUM (1 << 18)
 
 extern char __bss[], __bss_end[], __stack_top[];
-extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_end[];
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid, long eid) {
@@ -198,9 +198,17 @@ long getchar(void) {
  * page number (PPN) of the Level-1 page table directory. Since the kernel maps
  * physical memory 1:1, the virtual address is equal to the physical address.
  */
-static uint32_t *get_active_page_table(void) {
-  uint32_t satp = READ_CSR(satp);
-  return (uint32_t *)((satp & 0x3fffff) * PAGE_SIZE);
+static pte_t *get_active_page_table(void) {
+  struct Process *proc = get_current_process();
+  if (proc && proc->page_table) {
+    return proc->page_table;
+  }
+  reg_t satp = READ_CSR(satp);
+#if __riscv_xlen == 64
+  return (pte_t *)((satp & 0x00000FFFFFFFFFFFULL) * PAGE_SIZE);
+#else
+  return (pte_t *)((satp & 0x003FFFFFUL) * PAGE_SIZE);
+#endif
 }
 
 /*
@@ -210,68 +218,43 @@ static uint32_t *get_active_page_table(void) {
  * 3. Configured with user-accessible (PAGE_U) and writable (PAGE_W) page flags.
  */
 static bool validate_user_write_buffer(const void *addr, size_t len) {
-  uint32_t start = (uint32_t)addr;
-  uint32_t end = start + len;
-  if (end < start)
-    return false; // Overflow check
-
-  if (end > 0x80000000)
+  vaddr_t start = (vaddr_t)addr;
+  vaddr_t end = start + len;
+  if (end < start || end > 0x80000000)
     return false;
 
-  uint32_t *t1 = get_active_page_table();
-  uint32_t page_start = start & ~(PAGE_SIZE - 1);
-  uint32_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  pte_t *root = get_active_page_table();
+  if (!root)
+    return false;
 
-  // Check every page spanned by the buffer
-  for (uint32_t va = page_start; va < page_end; va += PAGE_SIZE) {
-    // SV32 Level 1: VPN1 occupies bits [31:22] of the virtual address
-    uint32_t vpn1 = (va >> 22) & 0x3ff;
-    if ((t1[vpn1] & PAGE_V) == 0)
-      return false; // L1 page table entry must be valid
+  vaddr_t page_start = start & ~(PAGE_SIZE - 1);
+  vaddr_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    // Get the address of the Level 2 page table page
-    uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
-
-    // SV32 Level 2: VPN0 occupies bits [21:12] of the virtual address
-    uint32_t vpn0 = (va >> 12) & 0x3ff;
-    uint32_t entry = t0[vpn0];
-
-    // Ensure the page entry is valid, user-accessible, and writable
-    if ((entry & PAGE_V) == 0)
-      return false;
-    if ((entry & PAGE_U) == 0)
-      return false;
-    if ((entry & PAGE_W) == 0)
+  for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
+    pte_t *leaf = walk_page_table(root, va, false);
+    if (!leaf || (*leaf & PAGE_V) == 0 || (*leaf & PAGE_U) == 0 ||
+        (*leaf & PAGE_W) == 0)
       return false;
   }
   return true;
 }
 
 static bool validate_user_read_buffer(const void *addr, size_t len) {
-  uint32_t start = (uint32_t)addr;
-  uint32_t end = start + len;
-  if (end < start)
-    return false; // Overflow check
-
-  if (end > 0x80000000)
+  vaddr_t start = (vaddr_t)addr;
+  vaddr_t end = start + len;
+  if (end < start || end > 0x80000000)
     return false;
 
-  uint32_t *t1 = get_active_page_table();
-  uint32_t page_start = start & ~(PAGE_SIZE - 1);
-  uint32_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  pte_t *root = get_active_page_table();
+  if (!root)
+    return false;
 
-  for (uint32_t va = page_start; va < page_end; va += PAGE_SIZE) {
-    uint32_t vpn1 = (va >> 22) & 0x3ff;
-    if ((t1[vpn1] & PAGE_V) == 0)
-      return false;
+  vaddr_t page_start = start & ~(PAGE_SIZE - 1);
+  vaddr_t page_end = (end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
-    uint32_t vpn0 = (va >> 12) & 0x3ff;
-    uint32_t entry = t0[vpn0];
-
-    if ((entry & PAGE_V) == 0)
-      return false;
-    if ((entry & PAGE_U) == 0)
+  for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
+    pte_t *leaf = walk_page_table(root, va, false);
+    if (!leaf || (*leaf & PAGE_V) == 0 || (*leaf & PAGE_U) == 0)
       return false;
   }
   return true;
@@ -283,35 +266,24 @@ static bool validate_user_read_buffer(const void *addr, size_t len) {
  * table validity only when crossing page boundaries to optimize performance.
  */
 static bool validate_user_string(const char *str) {
-  uint32_t *t1 = get_active_page_table();
-  uint32_t va = (uint32_t)str;
+  pte_t *root = get_active_page_table();
+  if (!root)
+    return false;
+
+  vaddr_t va = (vaddr_t)str;
   if (va >= 0x80000000)
     return false;
 
-  // Validate the first page containing the string's start
-  uint32_t current_page = va & ~(PAGE_SIZE - 1);
-  uint32_t vpn1 = (current_page >> 22) & 0x3ff;
-  if ((t1[vpn1] & PAGE_V) == 0)
-    return false;
-  uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
-  uint32_t vpn0 = (current_page >> 12) & 0x3ff;
-  if ((t0[vpn0] & PAGE_V) == 0 || (t0[vpn0] & PAGE_U) == 0)
+  pte_t *leaf = walk_page_table(root, va, false);
+  if (!leaf || (*leaf & PAGE_V) == 0 || (*leaf & PAGE_U) == 0)
     return false;
 
   while (true) {
-    // When va aligns to a page boundary, check that the new page is mapped and
-    // valid
     if ((va & (PAGE_SIZE - 1)) == 0) {
-      current_page = va;
-      vpn1 = (current_page >> 22) & 0x3ff;
-      if ((t1[vpn1] & PAGE_V) == 0)
-        return false;
-      t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
-      vpn0 = (current_page >> 12) & 0x3ff;
-      if ((t0[vpn0] & PAGE_V) == 0 || (t0[vpn0] & PAGE_U) == 0)
+      leaf = walk_page_table(root, va, false);
+      if (!leaf || (*leaf & PAGE_V) == 0 || (*leaf & PAGE_U) == 0)
         return false;
     }
-    // Read string character safely
     if (*(volatile char *)va == '\0') {
       return true;
     }
@@ -519,30 +491,25 @@ void handle_syscall(struct trap_frame *f) {
     break;
   }
   case SYSCALL_SBRK: {
-    int increment = f->a0;
+    long increment = (long)f->a0;
     struct Process *proc = get_current_process();
-    uint32_t old_brk = proc->heap_end;
-    uint32_t new_brk = old_brk + increment;
+    vaddr_t old_brk = proc->heap_end;
+    vaddr_t new_brk = old_brk + increment;
 
     if (increment < 0) {
       if (new_brk < proc->heap_start || new_brk > old_brk) {
         f->a0 = -1;
         break;
       }
-      uint32_t old_aligned = align_up(old_brk, PAGE_SIZE);
-      uint32_t new_aligned = align_up(new_brk, PAGE_SIZE);
+      vaddr_t old_aligned = align_up(old_brk, PAGE_SIZE);
+      vaddr_t new_aligned = align_up(new_brk, PAGE_SIZE);
       if (new_aligned < old_aligned) {
-        for (uint32_t va = new_aligned; va < old_aligned; va += PAGE_SIZE) {
-          uint32_t *t1 = proc->page_table;
-          uint32_t vpn1 = (va >> 22) & 0x3ff;
-          if (t1[vpn1] & PAGE_V) {
-            uint32_t *t0 = (uint32_t *)((t1[vpn1] >> 10) * PAGE_SIZE);
-            uint32_t vpn0 = (va >> 12) & 0x3ff;
-            if (t0[vpn0] & PAGE_V) {
-              paddr_t page_paddr = (t0[vpn0] >> 10) * PAGE_SIZE;
-              free_pages(page_paddr, 1);
-              t0[vpn0] = 0;
-            }
+        for (vaddr_t va = new_aligned; va < old_aligned; va += PAGE_SIZE) {
+          pte_t *leaf = walk_page_table(proc->page_table, va, false);
+          if (leaf && (*leaf & PAGE_V)) {
+            paddr_t page_paddr = PTE_TO_PADDR(*leaf);
+            free_pages(page_paddr, 1);
+            *leaf = 0;
           }
         }
         __asm__ __volatile__("sfence.vma" ::: "memory");
@@ -554,11 +521,11 @@ void handle_syscall(struct trap_frame *f) {
         f->a0 = -1;
         break;
       }
-      uint32_t old_aligned = align_up(old_brk, PAGE_SIZE);
-      uint32_t new_aligned = align_up(new_brk, PAGE_SIZE);
+      vaddr_t old_aligned = align_up(old_brk, PAGE_SIZE);
+      vaddr_t new_aligned = align_up(new_brk, PAGE_SIZE);
       bool success = true;
 
-      for (uint32_t va = old_aligned; va < new_aligned; va += PAGE_SIZE) {
+      for (vaddr_t va = old_aligned; va < new_aligned; va += PAGE_SIZE) {
         paddr_t page = alloc_pages(1);
         if (!page) {
           success = false;
@@ -737,12 +704,93 @@ void handle_syscall(struct trap_frame *f) {
   }
 }
 
+#if __riscv_xlen == 64
 __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
   __asm__ __volatile__(
-      // Retrive the kernel stack of the current process from sscratch.
+      // Retrieve the kernel stack of the current process from sscratch.
+      "csrrw sp, sscratch, sp\n"
+      "addi sp, sp, -8 * 31\n"
+      "sd ra,  8 * 0(sp)\n"
+      "sd gp,  8 * 1(sp)\n"
+      "sd tp,  8 * 2(sp)\n"
+      "sd t0,  8 * 3(sp)\n"
+      "sd t1,  8 * 4(sp)\n"
+      "sd t2,  8 * 5(sp)\n"
+      "sd t3,  8 * 6(sp)\n"
+      "sd t4,  8 * 7(sp)\n"
+      "sd t5,  8 * 8(sp)\n"
+      "sd t6,  8 * 9(sp)\n"
+      "sd a0,  8 * 10(sp)\n"
+      "sd a1,  8 * 11(sp)\n"
+      "sd a2,  8 * 12(sp)\n"
+      "sd a3,  8 * 13(sp)\n"
+      "sd a4,  8 * 14(sp)\n"
+      "sd a5,  8 * 15(sp)\n"
+      "sd a6,  8 * 16(sp)\n"
+      "sd a7,  8 * 17(sp)\n"
+      "sd s0,  8 * 18(sp)\n"
+      "sd s1,  8 * 19(sp)\n"
+      "sd s2,  8 * 20(sp)\n"
+      "sd s3,  8 * 21(sp)\n"
+      "sd s4,  8 * 22(sp)\n"
+      "sd s5,  8 * 23(sp)\n"
+      "sd s6,  8 * 24(sp)\n"
+      "sd s7,  8 * 25(sp)\n"
+      "sd s8,  8 * 26(sp)\n"
+      "sd s9,  8 * 27(sp)\n"
+      "sd s10, 8 * 28(sp)\n"
+      "sd s11, 8 * 29(sp)\n"
+
+      "csrr a0, sscratch\n"
+      "sd a0,  8 * 30(sp)\n"
+
+      // Reset the kernel stack.
+      "addi a0, sp, 8 * 31\n"
+      "csrw sscratch, a0\n"
+
+      "mv a0, sp\n"
+      "call handle_trap\n"
+
+      "ld ra,  8 * 0(sp)\n"
+      "ld gp,  8 * 1(sp)\n"
+      "ld tp,  8 * 2(sp)\n"
+      "ld t0,  8 * 3(sp)\n"
+      "ld t1,  8 * 4(sp)\n"
+      "ld t2,  8 * 5(sp)\n"
+      "ld t3,  8 * 6(sp)\n"
+      "ld t4,  8 * 7(sp)\n"
+      "ld t5,  8 * 8(sp)\n"
+      "ld t6,  8 * 9(sp)\n"
+      "ld a0,  8 * 10(sp)\n"
+      "ld a1,  8 * 11(sp)\n"
+      "ld a2,  8 * 12(sp)\n"
+      "ld a3,  8 * 13(sp)\n"
+      "ld a4,  8 * 14(sp)\n"
+      "ld a5,  8 * 15(sp)\n"
+      "ld a6,  8 * 16(sp)\n"
+      "ld a7,  8 * 17(sp)\n"
+      "ld s0,  8 * 18(sp)\n"
+      "ld s1,  8 * 19(sp)\n"
+      "ld s2,  8 * 20(sp)\n"
+      "ld s3,  8 * 21(sp)\n"
+      "ld s4,  8 * 22(sp)\n"
+      "ld s5,  8 * 23(sp)\n"
+      "ld s6,  8 * 24(sp)\n"
+      "ld s7,  8 * 25(sp)\n"
+      "ld s8,  8 * 26(sp)\n"
+      "ld s9,  8 * 27(sp)\n"
+      "ld s10, 8 * 28(sp)\n"
+      "ld s11, 8 * 29(sp)\n"
+      "ld sp,  8 * 30(sp)\n"
+      "sret\n");
+}
+#else
+__attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
+  __asm__ __volatile__(
+      // Retrieve the kernel stack of the current process from sscratch.
       "csrrw sp, sscratch, sp\n"
       "addi sp, sp, -4 * 31\n"
-      "sw ra, 4 * 0(sp)\n"
+      "sw ra,  4 * 0(sp)\n"
       "sw gp,  4 * 1(sp)\n"
       "sw tp,  4 * 2(sp)\n"
       "sw t0,  4 * 3(sp)\n"
@@ -774,7 +822,7 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
       "sw s11, 4 * 29(sp)\n"
 
       "csrr a0, sscratch\n"
-      "sw a0, 4 * 30(sp)\n"
+      "sw a0,  4 * 30(sp)\n"
 
       // Reset the kernel stack.
       "addi a0, sp, 4 * 31\n"
@@ -816,13 +864,14 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
       "lw sp,  4 * 30(sp)\n"
       "sret\n");
 }
+#endif
 
 void kmain(void) {
   // Clear BSS
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
 
   // Tell the CPU where the exception handler is
-  WRITE_CSR(stvec, (uint32_t)kentry);
+  WRITE_CSR(stvec, (uintptr_t)kentry);
 
   kprintf("dmaOS kernel boot started\n");
 
@@ -858,7 +907,8 @@ void kmain(void) {
   kprintf(BOLD YELLOW "Boot complete\n" DEFAULT);
 
   kprintf("Spawning shell process\n");
-  create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size, 0,
+  create_process(_binary_shell_bin_start,
+                 (size_t)(_binary_shell_bin_end - _binary_shell_bin_start), 0,
                  NULL);
 
   yield();
@@ -879,10 +929,10 @@ __attribute__((section(".text.boot"))) __attribute__((naked)) void boot(void) {
 }
 
 void handle_trap(struct trap_frame *f) {
-  uint32_t scause = READ_CSR(scause);
-  uint32_t stval = READ_CSR(stval);
-  uint32_t user_pc = READ_CSR(sepc);
-  uint32_t sstatus = READ_CSR(sstatus);
+  reg_t scause = READ_CSR(scause);
+  reg_t stval = READ_CSR(stval);
+  reg_t user_pc = READ_CSR(sepc);
+  reg_t sstatus = READ_CSR(sstatus);
 
   if (scause == SCAUSE_ECALL) {
     handle_syscall(f);

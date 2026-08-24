@@ -95,7 +95,7 @@ struct virtio_blk_req {
 } _packed;
 
 struct virtio_blk_dev {
-  uint32_t paddr;
+  paddr_t paddr;
   uint32_t sectors;
   struct virtio_blk_req *req;
   struct virtio_blk_virtq *vq;
@@ -285,7 +285,7 @@ struct virtio_input_event {
 } _packed;
 
 struct virtio_input_dev {
-  uint32_t paddr;
+  paddr_t paddr;
   struct virtio_blk_virtq *vq;
   struct virtio_input_event *events;
   paddr_t events_paddr;
@@ -424,7 +424,7 @@ struct virtio_net_header {
 } _packed;
 
 struct virtio_net_dev {
-  uint32_t paddr;
+  paddr_t paddr;
   struct virtio_net_queue rx_vq;
   struct virtio_net_queue tx_vq;
 };
@@ -523,9 +523,9 @@ void virtio_net_init() {
 
   uint32_t final_status = net_reg_read32(VIRTIO_REG_DEVICE_STATUS);
   kprintf("virtio net: initialized, device_status = 0x%x\n", final_status);
-  kprintf("virtio net: RX vq desc=0x%x avail=0x%x used=0x%x\n",
-          (uint32_t)net_dev.rx_vq.desc, (uint32_t)net_dev.rx_vq.avail,
-          (uint32_t)net_dev.rx_vq.used);
+  kprintf("virtio net: RX vq desc=0x%lx avail=0x%lx used=0x%lx\n",
+          (uintptr_t)net_dev.rx_vq.desc, (uintptr_t)net_dev.rx_vq.avail,
+          (uintptr_t)net_dev.rx_vq.used);
 
   net_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, 0);
 }
