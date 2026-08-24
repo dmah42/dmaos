@@ -106,7 +106,7 @@ struct virtio_blk_dev {
 
 static struct virtio_blk_dev blk_devices[2];
 
-uint32_t virtio_blk_sectors(uint32_t dev) {
+static uint32_t virtio_blk_sectors(uint32_t dev) {
   if (dev >= 2) {
     kprintf("virtio blk: attempt to access unknown device %d\n", dev);
     return 0;
@@ -223,15 +223,45 @@ static void read_write_device(uint32_t dev, void *buf, uint32_t sector,
     memcpy(buf, d->req->data, SECTOR_SIZE);
 }
 
-void read_device(uint32_t dev, void *buf, uint32_t sector) {
-  read_write_device(dev, buf, sector, /* is_write= */ false);
+static bool virtio_blk0_read(void *buf, uint32_t sector) {
+  read_write_device(0, buf, sector, false);
+  return true;
 }
 
-void write_device(uint32_t dev, void *buf, uint32_t sector) {
-  read_write_device(dev, buf, sector, /* is_write= */ true);
+static bool virtio_blk0_write(const void *buf, uint32_t sector) {
+  read_write_device(0, (void *)buf, sector, true);
+  return true;
 }
 
-void virtio_blk_init_device(uint32_t dev, uint32_t paddr) {
+static uint32_t virtio_blk0_get_sectors(void) { return virtio_blk_sectors(0); }
+
+static const struct blk_ops g_virtio_blk0_ops = {
+    .name = "virtio_blk0",
+    .read = virtio_blk0_read,
+    .write = virtio_blk0_write,
+    .get_sectors = virtio_blk0_get_sectors,
+};
+
+static bool virtio_blk1_read(void *buf, uint32_t sector) {
+  read_write_device(1, buf, sector, false);
+  return true;
+}
+
+static bool virtio_blk1_write(const void *buf, uint32_t sector) {
+  read_write_device(1, (void *)buf, sector, true);
+  return true;
+}
+
+static uint32_t virtio_blk1_get_sectors(void) { return virtio_blk_sectors(1); }
+
+static const struct blk_ops g_virtio_blk1_ops = {
+    .name = "virtio_blk1",
+    .read = virtio_blk1_read,
+    .write = virtio_blk1_write,
+    .get_sectors = virtio_blk1_get_sectors,
+};
+
+static void virtio_blk_init_device(uint32_t dev, uint32_t paddr) {
   struct virtio_blk_dev *d = &blk_devices[dev];
   d->paddr = paddr;
 
@@ -269,14 +299,15 @@ void virtio_blk_init_device(uint32_t dev, uint32_t paddr) {
   d->req = (struct virtio_blk_req *)d->req_paddr;
 }
 
-void virtio_blk_init() {
+void virtio_blk_init(void) {
   virtio_blk_init_device(0, VIRTIO_BLK0_PADDR);
   virtio_blk_init_device(1, VIRTIO_BLK1_PADDR);
+
+  blk_register_device(0, &g_virtio_blk0_ops);
+  blk_register_device(1, &g_virtio_blk1_ops);
 }
 
 void blk_init(void) { virtio_blk_init(); }
-
-uint32_t blk_get_sectors(uint32_t dev) { return virtio_blk_sectors(dev); }
 
 // Input driver (keyboard)
 #define VIRTIO_DEVICE_INPUT 18

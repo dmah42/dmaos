@@ -121,17 +121,17 @@ all: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/disk.img data.
 
 # ----------------- Kernel -----------------
 
-KERNEL_INCLUDES := -I$(KERNEL_DIR) -I$(KERNEL_DIR)/lwip -I$(SHARED_DIR) -isystem third_party/lwip/src/include
+KERNEL_INCLUDES := -I$(KERNEL_DIR) -I$(KERNEL_DIR)/drivers -I$(KERNEL_DIR)/lwip -I$(SHARED_DIR) -isystem third_party/lwip/src/include
 
 include $(KERNEL_DIR)/lwip/lwip.mk
 
 ifeq ($(BOARD),visionfive2)
-  BOARD_KOBJS := initrd.o fb_simple.o input_stub.o
+  BOARD_KOBJS := drivers/initrd.o drivers/dw_mmc.o drivers/vf2_blk.o drivers/fb_simple.o drivers/input_stub.o
 else
-  BOARD_KOBJS := virtio.o ramfb.o
+  BOARD_KOBJS := drivers/virtio.o drivers/ramfb.o
 endif
 
-kobjs := kernel.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
+kobjs := kernel.o blk.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 $(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o

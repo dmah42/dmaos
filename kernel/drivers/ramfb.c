@@ -51,9 +51,9 @@ typedef struct _packed {
 #define bswap64(x) __builtin_bswap64(x)
 
 // Global Framebuffer Info
-uint32_t g_framebuffer[FB_WIDTH * FB_HEIGHT];
+static uint32_t g_framebuffer[FB_WIDTH * FB_HEIGHT];
 
-void ramfb_init() {
+void ramfb_init(void) {
   memset(g_framebuffer, 0, FB_WIDTH * FB_HEIGHT);
 
   // Find the selector for "etc/ramfb"
