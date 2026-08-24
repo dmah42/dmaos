@@ -1,0 +1,5 @@
+# dmaOS U-Boot environment file for StarFive VisionFive 2
+kernel_addr=0x40200000
+initrd_addr=0x46000000
+bootcmd_dmaos=echo "=== Booting dmaOS on VisionFive 2 ==="; fatload mmc 1:3 ${kernel_addr} kernel.bin; fatload mmc 1:3 ${initrd_addr} disk.img; go ${kernel_addr}
+bootcmd=run bootcmd_dmaos
