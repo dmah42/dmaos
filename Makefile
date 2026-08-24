@@ -1,4 +1,5 @@
 ARCH ?= riscv32
+BOARD ?= qemu
 
 ifeq ($(ARCH),riscv64)
   TARGET_TRIPLE      := riscv64-unknown-elf
@@ -13,7 +14,18 @@ else
   OBJCOPY_ELF_TARGET := elf32-littleriscv
   NEWLIB_SUBDIR      := rv32
 endif
-BUILD_DIR          := build/$(NEWLIB_SUBDIR)
+
+ifeq ($(BOARD),visionfive2)
+  KERNEL_BASE   := 0x40200000
+  RAM_BASE      := 0x40000000
+  BOARD_CFLAGS  := -DBOARD_VISIONFIVE2 -DKERNEL_BASE=$(KERNEL_BASE) -DRAM_BASE=$(RAM_BASE)
+  BUILD_DIR     := build/$(NEWLIB_SUBDIR)-vf2
+else
+  KERNEL_BASE   := 0x80200000
+  RAM_BASE      := 0x80000000
+  BOARD_CFLAGS  := -DBOARD_QEMU -DKERNEL_BASE=$(KERNEL_BASE) -DRAM_BASE=$(RAM_BASE)
+  BUILD_DIR     := build/$(NEWLIB_SUBDIR)
+endif
 
 # Toolchain Auto-Detection (macOS Homebrew vs WSL/Linux System PATH)
 BREW_LLVM_PREFIX := $(shell brew --prefix llvm 2>/dev/null)
@@ -53,14 +65,15 @@ objcopy ?= $(DEFAULT_OBJCOPY)
 qemu ?= $(DEFAULT_QEMU)
 bios ?= $(DEFAULT_BIOS)
 
-$(info [dmaOS Build] Target Arch: $(ARCH) ($(TARGET_TRIPLE)))
+$(info [dmaOS Build] Target Arch : $(ARCH) ($(TARGET_TRIPLE)))
+$(info [dmaOS Build] Target Board: $(BOARD) (Base: $(KERNEL_BASE)))
 $(info [dmaOS Build] Compiler   : $(cc))
 $(info [dmaOS Build] Objcopy    : $(objcopy))
 $(info [dmaOS Build] QEMU       : $(qemu))
 $(info [dmaOS Build] BIOS       : $(bios))
 
 cflags := -std=c11 -O2 -g3 -Wall -Wextra -Werror \
-          --target=$(TARGET_TRIPLE) $(ARCH_FLAGS) -mcmodel=medany -nostdlib \
+          --target=$(TARGET_TRIPLE) $(ARCH_FLAGS) -mcmodel=medany $(BOARD_CFLAGS) -nostdlib \
           -fno-stack-protector -ffreestanding -fno-builtin
 ldflags := -fuse-ld=lld
 
@@ -104,7 +117,7 @@ uconfigs := dmash.cfg net.cfg
 .PHONY: all clean run
 .SECONDARY:
 
-all: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/disk.img data.img
+all: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/disk.img data.img
 
 # ----------------- Kernel -----------------
 
@@ -116,8 +129,11 @@ kobjs := kernel.o file.o fs.o net.o page.o process.o ramfb.o stdlib.o string.o v
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 $(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
-	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,-Map=$(BUILD_DIR)/kernel.map \
+	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,--defsym=KERNEL_BASE=$(KERNEL_BASE) -Wl,-Map=$(BUILD_DIR)/kernel.map \
 	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o -L$(NEWLIB_LIBDIR) -lgcc
+
+$(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf
+	$(objcopy) -O binary $< $@
 
 $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
 	@mkdir -p $(dir $@)

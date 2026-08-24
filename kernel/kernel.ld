@@ -1,7 +1,7 @@
 ENTRY(boot)
 
 SECTIONS {
-  . = 0x80200000;
+  . = KERNEL_BASE;
   __kernel_base = .;
 
   .text :{
