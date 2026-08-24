@@ -1,19 +1,20 @@
 #include "kernel.h"
 
+#include "blk.h"
 #include "colors.h"
+#include "fb.h"
 #include "file.h"
 #include "fs.h"
+#include "input.h"
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
 #include "net.h"
 #include "page.h"
 #include "process.h"
-#include "ramfb.h"
 #include "stdlib.h"
 #include "string.h"
 #include "syscall.h"
-#include "virtio.h"
 
 #include <stdarg.h>
 
@@ -557,7 +558,7 @@ void handle_syscall(struct trap_frame *f) {
       return;
     }
 
-    f->a0 = ramfb_present(user_fb, user_fb_width, user_fb_height);
+    f->a0 = fb_present(user_fb, user_fb_width, user_fb_height);
     break;
   }
   case SYSCALL_INPUT_POLL: {
@@ -569,7 +570,7 @@ void handle_syscall(struct trap_frame *f) {
       f->a0 = ERR_INVALID_ARGUMENT;
       return;
     }
-    if (virtio_input_poll_event(codeptr, pressedptr))
+    if (input_poll_event(codeptr, pressedptr))
       f->a0 = 1;
     else
       f->a0 = 0;
@@ -875,12 +876,12 @@ void kmain(void) {
 
   kprintf("dmaOS kernel boot started\n");
 
-  kprintf("Initializing VirtIO block devices\n");
-  virtio_blk_init();
+  kprintf("Initializing block storage devices\n");
+  blk_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
-  kprintf("Initializing VirtIO input devices\n");
-  virtio_input_init();
+  kprintf("Initializing input devices\n");
+  input_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing network devices\n");
@@ -892,9 +893,9 @@ void kmain(void) {
   fs_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
-  kprintf("Initializing RAM framebuffer\n");
-  ramfb_init();
-  uint32_t *fb_ram = ramfb_get_buffer();
+  kprintf("Initializing framebuffer\n");
+  fb_init();
+  uint32_t *fb_ram = fb_get_buffer();
   for (int i = 0; i < FB_WIDTH * FB_HEIGHT; ++i) {
     fb_ram[i] = 0x0000AAFF; // 0x00RRGGBB
   }

@@ -125,7 +125,13 @@ KERNEL_INCLUDES := -I$(KERNEL_DIR) -I$(KERNEL_DIR)/lwip -I$(SHARED_DIR) -isystem
 
 include $(KERNEL_DIR)/lwip/lwip.mk
 
-kobjs := kernel.o file.o fs.o net.o page.o process.o ramfb.o stdlib.o string.o virtio.o
+ifeq ($(BOARD),visionfive2)
+  BOARD_KOBJS := initrd.o fb_simple.o input_stub.o
+else
+  BOARD_KOBJS := virtio.o ramfb.o
+endif
+
+kobjs := kernel.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 $(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o

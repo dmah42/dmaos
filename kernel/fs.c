@@ -8,7 +8,7 @@
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
-#include "virtio.h"
+#include "blk.h"
 
 #define NINODE (50)
 #define SECTORS_PER_BLOCK (2)
@@ -375,11 +375,12 @@ void fs_init() {
     PANIC("fs_init: Device 0 magic mismatch");
   }
 
-  // Initialize Device 1
+  // Initialize Device 1 (Persistent partition)
   read_block(1, 1, buf);
   memcpy(&sb[1], buf, sizeof(sb[1]));
   if (sb[1].magic != XV6_FS_MAGIC) {
-    PANIC("fs_init: Device 1 magic mismatch");
+    kprintf("fs_init: Device 1 persistent partition not detected (running read-only root)\n");
+    return;
   }
 
   // Find `/home` inode on Device 0

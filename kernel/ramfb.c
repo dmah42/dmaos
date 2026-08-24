@@ -1,3 +1,4 @@
+#include "fb.h"
 #include "ramfb.h"
 
 #include "kernel.h"
@@ -150,4 +151,10 @@ int ramfb_present(uint32_t *fb, uint32_t w, uint32_t h) {
     curr_y_fp += step_y;
   }
   return 0;
+}
+
+void fb_init(void) { ramfb_init(); }
+uint32_t *fb_get_buffer(void) { return ramfb_get_buffer(); }
+int fb_present(uint32_t *fb, uint32_t w, uint32_t h) {
+  return ramfb_present(fb, w, h);
 }

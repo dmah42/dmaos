@@ -1,5 +1,7 @@
 #include "virtio.h"
 
+#include "blk.h"
+#include "input.h"
 #include "k_errno.h"
 #include "kernel.h"
 #include "page.h"
@@ -272,6 +274,10 @@ void virtio_blk_init() {
   virtio_blk_init_device(1, VIRTIO_BLK1_PADDR);
 }
 
+void blk_init(void) { virtio_blk_init(); }
+
+uint32_t blk_get_sectors(uint32_t dev) { return virtio_blk_sectors(dev); }
+
 // Input driver (keyboard)
 #define VIRTIO_DEVICE_INPUT 18
 #define EV_KEY 0x01
@@ -377,6 +383,12 @@ bool virtio_input_poll_event(uint16_t *code, int *pressed) {
   }
 
   return false;
+}
+
+void input_init(void) { virtio_input_init(); }
+
+bool input_poll_event(uint16_t *code, int *pressed) {
+  return virtio_input_poll_event(code, pressed);
 }
 
 // Network

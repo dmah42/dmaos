@@ -3,11 +3,10 @@
 #include "fs.h"
 #include "k_errno.h"
 #include "kernel.h"
-#include "netif_virtio.h"
+#include "net_driver.h"
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
-#include "virtio.h"
 
 #include <lwip/dns.h>
 #include <lwip/init.h>
@@ -171,8 +170,8 @@ err_t tcp_accept_callback(void *arg, struct tcp_pcb *newpcb,
 }
 
 void net_init(void) {
-  kprintf("net: Initializing virtio network hardware...\n");
-  virtio_net_init();
+  kprintf("net: Initializing network hardware...\n");
+  net_driver_init();
 
   kprintf("net: Initializing lwIP network stack...\n");
   lwip_init();
@@ -182,7 +181,7 @@ void net_init(void) {
   IP4_ADDR(&netmask, 255, 255, 255, 0);
   IP4_ADDR(&gw, 10, 0, 2, 2);
 
-  netif_add(&dmaos_netif, &ipaddr, &netmask, &gw, NULL, virtio_netif_init,
+  netif_add(&dmaos_netif, &ipaddr, &netmask, &gw, NULL, net_driver_netif_init,
             ethernet_input);
   netif_set_default(&dmaos_netif);
   netif_set_up(&dmaos_netif);
@@ -200,15 +199,15 @@ void net_init(void) {
 }
 
 void net_poll(void) {
-  virtio_netif_poll(&dmaos_netif);
+  net_driver_poll(&dmaos_netif);
   sys_check_timeouts();
 }
 
 int net_send(const uint8_t *buf, uint32_t len) {
-  return virtio_net_send(buf, len);
+  return net_driver_send(buf, len);
 }
 
-int net_recv(uint8_t *buf, uint32_t len) { return virtio_net_recv(buf, len); }
+int net_recv(uint8_t *buf, uint32_t len) { return net_driver_recv(buf, len); }
 
 // ---------------------------------------------------------------------------
 // BSD Socket Syscall Implementations

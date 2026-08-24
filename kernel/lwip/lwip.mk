@@ -25,7 +25,11 @@ LWIP_SRCS := $(LWIP_DIR)/core/init.c \
              $(LWIP_DIR)/core/ipv4/ip4_frag.c \
              $(LWIP_DIR)/netif/ethernet.c
 
-LWIP_PORT_SRCS := $(KERNEL_DIR)/lwip/netif_virtio.c
+ifeq ($(BOARD),visionfive2)
+  LWIP_PORT_SRCS := $(KERNEL_DIR)/lwip/netif_stub.c $(KERNEL_DIR)/lwip/sys_arch.c
+else
+  LWIP_PORT_SRCS := $(KERNEL_DIR)/lwip/netif_virtio.c $(KERNEL_DIR)/lwip/sys_arch.c
+endif
 
 LWIP_OBJS := $(patsubst third_party/lwip/%.c, $(BUILD_DIR)/third_party/lwip/%.o, $(LWIP_SRCS))
 LWIP_PORT_OBJS := $(patsubst $(KERNEL_DIR)/lwip/%.c, $(BUILD_DIR)/kernel/lwip/%.o, $(LWIP_PORT_SRCS))

@@ -1,10 +1,13 @@
 #include "netif_virtio.h"
 #include "kernel.h"
+#include "net_driver.h"
 #include "stdlib.h"
 #include "virtio.h"
 
 #include <lwip/etharp.h>
 #include <lwip/pbuf.h>
+
+void net_driver_init(void) { virtio_net_init(); }
 
 err_t virtio_netif_output(_unused struct netif *netif, struct pbuf *p) {
   uint8_t buffer[1600];
@@ -47,6 +50,10 @@ err_t virtio_netif_init(struct netif *netif) {
   return ERR_OK;
 }
 
+err_t net_driver_netif_init(struct netif *netif) {
+  return virtio_netif_init(netif);
+}
+
 void virtio_netif_poll(struct netif *netif) {
   uint8_t rx_buf[1600];
   int len;
@@ -70,5 +77,12 @@ void virtio_netif_poll(struct netif *netif) {
   }
 }
 
-// System uptime in milliseconds for lwIP timers
-uint32_t sys_now(void) { return uptime_ms(); }
+void net_driver_poll(struct netif *netif) { virtio_netif_poll(netif); }
+
+int net_driver_send(const uint8_t *buf, uint32_t len) {
+  return virtio_net_send(buf, len);
+}
+
+int net_driver_recv(uint8_t *buf, uint32_t len) {
+  return virtio_net_recv(buf, len);
+}
