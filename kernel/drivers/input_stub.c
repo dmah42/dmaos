@@ -7,3 +7,7 @@ bool input_poll_event(uint16_t *code, int *pressed) {
   (void)pressed;
   return false;
 }
+
+int input_getchar(void) {
+  return -1;
+}

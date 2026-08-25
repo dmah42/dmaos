@@ -37,8 +37,23 @@ oh, and it runs DOOM.
 - **Unified VFS File Descriptors**: Network sockets are first-class file descriptors (`FD_SOCKET`) fully integrated with `read()`, `write()`, and `close()`.
 - **POSIX Userland Headers**: Standard networking headers provided in user space: `<sys/socket.h>`, `<netinet/in.h>`, and `<arpa/inet.h>`.
 
-### 5. Shell & Command Utilities
-- **dmash Shell**: Standard shell with configuration parsing for path, prompt, etc.
+### 5. Graphics & Framebuffer Text Console
+- **Gruvbox Dark ANSI Terminal**: In-kernel framebuffer text console (`kernel/fbcon.c`) featuring a 16-color Gruvbox Dark palette, dynamic grid scaling (80x25 default @ 2x scaling on 1280x800), smooth scanline scrolling, and ANSI escape sequence parsing (SGR colors, cursor movements, and line clearing).
+- **CP437 & Real-Time UTF-8 Decoding**: Full Code Page 437 bitmap font with real-time multi-byte UTF-8 decoding supporting custom prompts (e.g. `∅`), status banners, and international symbols.
+- **Reproducible Font Generator**: Standalone font tooling (`tools/generate_font.py`) generating raw binary bitmaps packaged directly into object files at build time without source-tree bloat.
+- **Strict Stream Isolation**:
+  - **Kernel Logs (`kprintf` / `kputc`)**: Routed to OpenSBI UART and the in-kernel `kmesg` ring buffer only.
+  - **Userland Streams (`stdout` / `stderr`)**: Rendered directly on the graphical framebuffer console screen.
+- **Window Keyboard Input**: VirtIO keyboard driver (`kernel/drivers/virtio.c`) translating raw evdev hardware scancodes and Shift modifier state into ASCII characters and ANSI escape sequences (arrow keys, home, end, etc.) with transparent fallback to serial UART.
+
+### 6. Hardware Board Support (VisionFive 2)
+- **StarFive JH7110 (VisionFive 2)**: 64-bit multi-core hardware platform port (`ARCH=riscv64 BOARD=visionfive2`).
+- **Memory Architecture**: Execution from physical RAM base `0x40200000` (`RAM_BASE=0x40000000`) with custom linker map and U-Boot `boot.scr` script.
+- **Storage Subsystem**: Dedicated DesignWare Mobile Storage Host Controller (DW-MMC / SDIO) driver (`kernel/drivers/dw_mmc.c`) interacting directly with physical SD cards.
+- **Packaging & Deployment**: Automated image generation script (`tools/vf2/create_sdcard.sh`) preparing raw bootable GPT/MBR SD cards with SPL, U-Boot, and dmaOS partitions.
+
+### 7. Shell & Command Utilities
+- **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, and path navigation.
 - **User Library**:
   - Powered by the Newlib user-space standard library with dedicated 32-bit and 64-bit multilib configurations.
 - **User Utilities**:
@@ -51,6 +66,7 @@ oh, and it runs DOOM.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
   - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
+  - `nslookup` - DNS query utility resolving domain hostnames to IPv4 addresses.
   - `doom` - classic DOOM (shareware episode 1) via `doomgeneric`.
 
 ---
@@ -75,7 +91,7 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
 
 ### Build & Execution Commands
 
-#### 32-Bit Target (Default)
+#### 32-Bit Target (QEMU Virt)
 - **Compile all binaries and build disk image**:
   ```bash
   make ARCH=riscv32 all   # or simply: make
@@ -89,7 +105,7 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
   make ARCH=riscv32 clean # or simply: make clean
   ```
 
-#### 64-Bit Target
+#### 64-Bit Target (QEMU Virt)
 - **Compile all binaries and build disk image**:
   ```bash
   make ARCH=riscv64 all
@@ -101,6 +117,20 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
 - **Clean 64-bit build artifacts**:
   ```bash
   make ARCH=riscv64 clean
+  ```
+
+#### StarFive VisionFive 2 (Hardware Target)
+- **Compile kernel binary and root filesystem image**:
+  ```bash
+  make ARCH=riscv64 BOARD=visionfive2 all
+  ```
+- **Generate bootable SD card image**:
+  ```bash
+  ./tools/vf2/create_sdcard.sh build/rv64-vf2/sdcard.img
+  ```
+- **Clean VisionFive 2 build artifacts**:
+  ```bash
+  make ARCH=riscv64 BOARD=visionfive2 clean
   ```
 
 ---
@@ -128,13 +158,12 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
-- [x] **64-Bit RISC-V Architecture Port (RV64 / SV39)**:
-  - Ported kernel, userland, paging, drivers, and newlib to `riscv64`.
-- [x] **Standard C Library Integration (Newlib)**:
-  - Replaced the homegrown standard library with standard **Newlib** (supporting both RV32 and RV64 multilibs).
-  - Mapped Newlib system call stubs (`_read`, `_write`, `_open`, `_close`, `_sbrk`, `_stat`) to our kernel ABI.
 - [ ] **Standard Streams & Shell Piping**:
-  - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers to enable shell command pipelines (e.g., `cat file.txt | grep query`).
+  - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers (`pipe` syscall / `FD_PIPE`) to enable shell command pipelines (e.g., `cat file.txt | grep query` or `dmesg | less`).
+- [ ] **Terminal Pager (`less` / `more`)**:
+  - Implement a paginated screen viewer utility to view long file contents and command output on the framebuffer console.
+- [ ] **Framebuffer Console Scrollback History**:
+  - Add an in-memory scrollback ring buffer with keyboard shortcuts (e.g. `Shift + PageUp` / `Shift + PageDown`) to inspect previous terminal output.
 
 ---
 
@@ -147,10 +176,6 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
-- [x] **Network Stack & BSD Sockets (VirtIO Network Card & lwIP)**:
-  - Implemented `virtio-net` MMIO network device driver and polling adapter.
-  - Integrated lwIP TCP/IP stack with BSD socket syscalls and VFS file descriptor routing.
-  - Implemented `nettest` utility for dynamic ARP, UDP, and TCP echo testing.
 - [ ] **Network Utilities**:
   - `ping` - ICMP Echo Request/Reply utility to check host reachability.
   - `traceroute` - TTL-incrementing path analyzer.

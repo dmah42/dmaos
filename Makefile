@@ -131,12 +131,20 @@ else
   BOARD_KOBJS := drivers/virtio.o drivers/ramfb.o
 endif
 
-kobjs := kernel.o blk.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
+kobjs := kernel.o blk.o fbcon.o font8x16.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
-$(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o
+$(BUILD_DIR)/kernel/fonts/font8x16.bin: $(TOOLS_DIR)/generate_font.py
+	@mkdir -p $(dir $@)
+	python3 $< $@
+
+$(BUILD_DIR)/kernel/fonts/font8x16.bin.o: $(BUILD_DIR)/kernel/fonts/font8x16.bin
+	@mkdir -p $(dir $@)
+	cd $(dir $<) && $(objcopy) -Ibinary -O$(OBJCOPY_ELF_TARGET) $(notdir $<) $(abspath $@)
+
+$(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/user/sh/shell.bin.o $(BUILD_DIR)/kernel/fonts/font8x16.bin.o
 	$(cc) $(cflags) $(ldflags) -Wl,-T$(KERNEL_DIR)/kernel.ld -Wl,--defsym=KERNEL_BASE=$(KERNEL_BASE) -Wl,-Map=$(BUILD_DIR)/kernel.map \
-	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o -L$(NEWLIB_LIBDIR) -lgcc
+	      -o $@ $(KERNEL_OBJS) $(BUILD_DIR)/user/sh/shell.bin.o $(BUILD_DIR)/kernel/fonts/font8x16.bin.o -L$(NEWLIB_LIBDIR) -lgcc
 
 $(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf
 	$(objcopy) -O binary $< $@

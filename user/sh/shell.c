@@ -278,66 +278,6 @@ void cd_cmd(const char *cmdline) {
   }
 }
 
-// Queries the terminal for the current cursor column index
-int get_cursor_column(void) {
-  printf("\033[6n"); // VT100 cursor position query
-
-  // Response format: \033[<line>;<col>R
-  char ch = getchar();
-  if (ch != '\033')
-    return -1;
-  ch = getchar();
-  if (ch != '[')
-    return -1;
-
-  // Skip line number digits
-  while (1) {
-    ch = getchar();
-    if (ch == ';')
-      break;
-    if (ch < '0' || ch > '9')
-      return -1;
-  }
-
-  // Parse column number
-  int col = 0;
-  while (1) {
-    ch = getchar();
-    if (ch == 'R')
-      break;
-    if (ch < '0' || ch > '9')
-      return -1;
-    col = col * 10 + (ch - '0');
-  }
-
-  return col;
-}
-
-// Returns true if the terminal resolves multi-byte UTF-8 chars to 1 column
-// width
-bool detect_utf8(void) {
-  int col1 = get_cursor_column();
-  if (col1 < 0) {
-    return false; // Fallback to ASCII if query fails
-  }
-
-  printf("❯"); // Print test character
-
-  int col2 = get_cursor_column();
-  if (col2 < 0) {
-    return false;
-  }
-
-  int width = col2 - col1;
-
-  // Erase the test character from the screen
-  for (int i = 0; i < width; ++i) {
-    printf("\b \b");
-  }
-
-  return (width == 1);
-}
-
 void history_add(const char *cmd) {
   if (!cmd || *cmd == '\0') {
     return;
@@ -462,7 +402,6 @@ void read_line(char *buf, size_t max_len) {
 
 int main(void) {
   init_config();
-  detect_utf8();
 
   // Clear the screen of any bios messages.
   printf("\033[2J\033[3J\033[H");

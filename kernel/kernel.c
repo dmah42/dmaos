@@ -3,6 +3,7 @@
 #include "blk.h"
 #include "colors.h"
 #include "fb.h"
+#include "fbcon.h"
 #include "file.h"
 #include "fs.h"
 #include "input.h"
@@ -69,6 +70,7 @@ void kputc(char ch) {
     kmesg_buf[kmesg_len++] = ch;
     kmesg_buf[kmesg_len] = '\0';
   }
+  sbi_call((long)ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
 }
 
 void vprintf(const char *fmt, va_list vargs) {
@@ -189,6 +191,10 @@ void kprintf(const char *fmt, ...) {
 }
 
 long getchar(void) {
+  int ch = input_getchar();
+  if (ch >= 0) {
+    return (long)ch;
+  }
   struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
   return ret.error;
 }
@@ -288,7 +294,7 @@ static bool validate_user_string(const char *str) {
     if (*(volatile char *)va == '\0') {
       return true;
     }
-    va++;
+    ++va;
     if (va >= 0x80000000)
       return false;
   }
@@ -297,7 +303,7 @@ static bool validate_user_string(const char *str) {
 void handle_syscall(struct trap_frame *f) {
   switch (f->a3) {
   case SYSCALL_PUTCHAR:
-    putchar(f->a0);
+    fbcon_putchar((char)f->a0);
     break;
   case SYSCALL_GETCHAR:
     f->a0 = getchar();
@@ -893,12 +899,9 @@ void kmain(void) {
   fs_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
-  kprintf("Initializing framebuffer\n");
+  kprintf("Initializing framebuffer and console\n");
   fb_init();
-  uint32_t *fb_ram = fb_get_buffer();
-  for (int i = 0; i < FB_WIDTH * FB_HEIGHT; ++i) {
-    fb_ram[i] = 0x0000AAFF; // 0x00RRGGBB
-  }
+  fbcon_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
   kprintf("Initializing process scheduler\n");

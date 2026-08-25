@@ -1,9 +1,9 @@
-#include "net_driver.h"
 #include "kernel.h"
-#include "stdlib.h"
+#include "net_driver.h"
 
 void net_driver_init(void) {
-  kprintf("net: network hardware driver stub (no physical Ethernet card active)\n");
+  kprintf(
+      "net: network hardware driver stub (no physical Ethernet card active)\n");
 }
 
 err_t net_driver_netif_init(struct netif *netif) {
@@ -13,9 +13,7 @@ err_t net_driver_netif_init(struct netif *netif) {
   return ERR_OK;
 }
 
-void net_driver_poll(struct netif *netif) {
-  (void)netif;
-}
+void net_driver_poll(struct netif *netif) { (void)netif; }
 
 int net_driver_send(const uint8_t *buf, uint32_t len) {
   (void)buf;

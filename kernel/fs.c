@@ -1,5 +1,7 @@
 #include "fs.h"
 
+#include "blk.h"
+#include "fbcon.h"
 #include "file.h"
 #include "k_errno.h"
 #include "k_fcntl.h"
@@ -8,7 +10,6 @@
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
-#include "blk.h"
 
 #define NINODE (50)
 #define SECTORS_PER_BLOCK (2)
@@ -379,7 +380,8 @@ void fs_init() {
   read_block(1, 1, buf);
   memcpy(&sb[1], buf, sizeof(sb[1]));
   if (sb[1].magic != XV6_FS_MAGIC) {
-    kprintf("fs_init: Device 1 persistent partition not detected (running read-only root)\n");
+    kprintf("fs_init: Device 1 persistent partition not detected (running "
+            "read-only root)\n");
     return;
   }
 
@@ -1063,9 +1065,7 @@ int fs_write(int fd, const char *buf, int n) {
   }
 
   if (f->type == FD_CONSOLE) {
-    for (int i = 0; i < n; i++) {
-      putchar(buf[i]);
-    }
+    fbcon_write(buf, n);
     return n;
   } else if (f->type == FD_INODE) {
     int w = writei(f->ip, buf, f->off, n);
