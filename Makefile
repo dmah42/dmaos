@@ -65,8 +65,12 @@ objcopy ?= $(DEFAULT_OBJCOPY)
 qemu ?= $(DEFAULT_QEMU)
 bios ?= $(DEFAULT_BIOS)
 
+FB_WIDTH  ?= 1600
+FB_HEIGHT ?= 1200
+
 $(info [dmaOS Build] Target Arch : $(ARCH) ($(TARGET_TRIPLE)))
 $(info [dmaOS Build] Target Board: $(BOARD) (Base: $(KERNEL_BASE)))
+$(info [dmaOS Build] Display Res : $(FB_WIDTH)x$(FB_HEIGHT))
 $(info [dmaOS Build] Compiler   : $(cc))
 $(info [dmaOS Build] Objcopy    : $(objcopy))
 $(info [dmaOS Build] QEMU       : $(qemu))
@@ -94,6 +98,8 @@ host_cflags := -std=c11 -O2 -Wall -Wextra -Werror
 qflags := -machine virt -bios $(bios) -nographic \
           -serial mon:stdio --no-reboot \
           -d unimp,guest_errors,cpu_reset -D qemu.log \
+          -fw_cfg name=opt/dmaos/width,string=$(FB_WIDTH) \
+          -fw_cfg name=opt/dmaos/height,string=$(FB_HEIGHT) \
           -drive id=drive0,file=$(BUILD_DIR)/disk.img,format=raw,if=none \
           -device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 \
           -drive id=drive1,file=data.img,format=raw,if=none \
@@ -126,12 +132,12 @@ KERNEL_INCLUDES := -I$(KERNEL_DIR) -I$(KERNEL_DIR)/drivers -I$(KERNEL_DIR)/lwip 
 include $(KERNEL_DIR)/lwip/lwip.mk
 
 ifeq ($(BOARD),visionfive2)
-  BOARD_KOBJS := drivers/initrd.o drivers/dw_mmc.o drivers/vf2_blk.o drivers/fb_simple.o drivers/input_stub.o
+  BOARD_KOBJS := drivers/initrd.o drivers/dw_mmc.o drivers/vf2_blk.o drivers/simplefb.o drivers/input_stub.o
 else
   BOARD_KOBJS := drivers/virtio.o drivers/ramfb.o
 endif
 
-kobjs := kernel.o blk.o fbcon.o font8x16.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
+kobjs := kernel.o blk.o fb.o fbcon.o font8x16.o file.o fs.o net.o page.o process.o stdlib.o string.o $(BOARD_KOBJS)
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 $(BUILD_DIR)/kernel/fonts/font8x16.bin: $(TOOLS_DIR)/generate_font.py
@@ -149,7 +155,7 @@ $(BUILD_DIR)/kernel.elf: $(KERNEL_OBJS) $(KERNEL_DIR)/kernel.ld $(BUILD_DIR)/use
 $(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf
 	$(objcopy) -O binary $< $@
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
+$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c Makefile
 	@mkdir -p $(dir $@)
 	$(cc) $(cflags) $(KERNEL_INCLUDES) -MMD -MP -c -o $@ $<
 

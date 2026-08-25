@@ -38,7 +38,9 @@ oh, and it runs DOOM.
 - **POSIX Userland Headers**: Standard networking headers provided in user space: `<sys/socket.h>`, `<netinet/in.h>`, and `<arpa/inet.h>`.
 
 ### 5. Graphics & Framebuffer Text Console
-- **Gruvbox Dark ANSI Terminal**: In-kernel framebuffer text console (`kernel/fbcon.c`) featuring a 16-color Gruvbox Dark palette, dynamic grid scaling (80x25 default @ 2x scaling on 1280x800), smooth scanline scrolling, and ANSI escape sequence parsing (SGR colors, cursor movements, and line clearing).
+- **Unified Framebuffer Subsystem**: Core display manager (`kernel/fb.c` / `kernel/fb.h`) abstracting physical framebuffer state, runtime dimension accessors (`fb_get_width`, `fb_get_height`, `fb_get_stride`), and a shared fixed-point bilinear/nearest-neighbor scaling engine (`fb_present`) with zero board `#ifdef`s.
+- **Dynamic QEMU fw_cfg Resolution**: QEMU display resolution configured at launch via `fw_cfg` (`-fw_cfg name=opt/dmaos/width/height`) and dynamically allocated at boot via `alloc_pages()`, allowing instant resolution switching (e.g. `make FB_WIDTH=1600 FB_HEIGHT=1200 run`) without kernel recompilation.
+- **Gruvbox Dark ANSI Terminal**: In-kernel framebuffer text console (`kernel/fbcon.c`) featuring a 16-color Gruvbox Dark palette, dynamic grid scaling (e.g. 80x25 @ 2x or 3x on high-res displays), smooth scanline scrolling, and ANSI escape sequence parsing (SGR colors, cursor movements, and line clearing).
 - **CP437 & Real-Time UTF-8 Decoding**: Full Code Page 437 bitmap font with real-time multi-byte UTF-8 decoding supporting custom prompts (e.g. `∅`), status banners, and international symbols.
 - **Reproducible Font Generator**: Standalone font tooling (`tools/generate_font.py`) generating raw binary bitmaps packaged directly into object files at build time without source-tree bloat.
 - **Strict Stream Isolation**:
@@ -50,6 +52,7 @@ oh, and it runs DOOM.
 - **StarFive JH7110 (VisionFive 2)**: 64-bit multi-core hardware platform port (`ARCH=riscv64 BOARD=visionfive2`).
 - **Memory Architecture**: Execution from physical RAM base `0x40200000` (`RAM_BASE=0x40000000`) with custom linker map and U-Boot `boot.scr` script.
 - **Storage Subsystem**: Dedicated DesignWare Mobile Storage Host Controller (DW-MMC / SDIO) driver (`kernel/drivers/dw_mmc.c`) interacting directly with physical SD cards.
+- **Display Driver**: Linear simple-framebuffer driver (`kernel/drivers/simplefb.c`) binding runtime video memory parameters passed from U-Boot / Device Tree into the core framebuffer subsystem.
 - **Packaging & Deployment**: Automated image generation script (`tools/vf2/create_sdcard.sh`) preparing raw bootable GPT/MBR SD cards with SPL, U-Boot, and dmaOS partitions.
 
 ### 7. Shell & Command Utilities

@@ -1,7 +1,8 @@
-#include "fb.h"
 #include "ramfb.h"
 
+#include "fb.h"
 #include "kernel.h"
+#include "page.h"
 #include "stdlib.h"
 #include "string.h"
 
@@ -50,13 +51,23 @@ typedef struct _packed {
 #define bswap32(x) __builtin_bswap32(x)
 #define bswap64(x) __builtin_bswap64(x)
 
-// Global Framebuffer Info
-static uint32_t g_framebuffer[FB_WIDTH * FB_HEIGHT];
+static uint32_t fw_cfg_read_u32_str(uint16_t selector, uint32_t size) {
+  if (!selector || size == 0) {
+    return 0;
+  }
+  *FW_CFG_SELECTOR = bswap16(selector);
+  char buf[32];
+  uint32_t len = (size < sizeof(buf) - 1) ? size : (sizeof(buf) - 1);
+  volatile uint8_t *data_ptr = (volatile uint8_t *)FW_CFG_DATA;
+  for (uint32_t i = 0; i < len; ++i) {
+    buf[i] = *data_ptr;
+  }
+  buf[len] = '\0';
+  return (uint32_t)atoi(buf);
+}
 
 void ramfb_init(void) {
-  memset(g_framebuffer, 0, FB_WIDTH * FB_HEIGHT);
-
-  // Find the selector for "etc/ramfb"
+  // Find selectors in fw_cfg
   *FW_CFG_SELECTOR = bswap16(FW_CFG_FILE_DIR);
 
   // Read count of files in directory
@@ -64,6 +75,11 @@ void ramfb_init(void) {
   file_count = bswap32(*(volatile uint32_t *)FW_CFG_DATA);
 
   uint16_t ramfb_select = 0;
+  uint16_t width_select = 0;
+  uint32_t width_size = 0;
+  uint16_t height_select = 0;
+  uint32_t height_size = 0;
+
   for (uint32_t i = 0; i < file_count; ++i) {
     FWCfgFile file;
     volatile uint8_t *data_ptr = (volatile uint8_t *)FW_CFG_DATA;
@@ -74,7 +90,12 @@ void ramfb_init(void) {
 
     if (strcmp(file.name, "etc/ramfb") == 0) {
       ramfb_select = bswap16(file.select);
-      break;
+    } else if (strcmp(file.name, "opt/dmaos/width") == 0) {
+      width_select = bswap16(file.select);
+      width_size = bswap32(file.size);
+    } else if (strcmp(file.name, "opt/dmaos/height") == 0) {
+      height_select = bswap16(file.select);
+      height_size = bswap32(file.size);
     }
   }
 
@@ -83,13 +104,32 @@ void ramfb_init(void) {
     return;
   }
 
+  // Parse display resolution provided by host via fw_cfg
+  uint32_t width = fw_cfg_read_u32_str(width_select, width_size);
+  uint32_t height = fw_cfg_read_u32_str(height_select, height_size);
+
+  if (width == 0 || height == 0) {
+    PANIC("ramfb: resolution not provided in fw_cfg (opt/dmaos/width, opt/dmaos/height)");
+    return;
+  }
+
+  // Dynamically allocate framebuffer memory
+  size_t fb_bytes = (size_t)width * height * sizeof(uint32_t);
+  size_t fb_pages = (fb_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+  uint32_t *framebuffer = (uint32_t *)alloc_pages(fb_pages);
+  if (!framebuffer) {
+    PANIC("ramfb: failed to allocate memory for framebuffer");
+    return;
+  }
+  memset(framebuffer, 0, fb_bytes);
+
   // Fill out RamFBCfg in Big-Endian
-  RamFBCfg cfg = {.addr = bswap64((uint64_t)(uintptr_t)g_framebuffer),
+  RamFBCfg cfg = {.addr = bswap64((uint64_t)(uintptr_t)framebuffer),
                   .fourcc = bswap32(DRM_FORMAT_XRGB8888),
                   .flags = 0,
-                  .width = bswap32(FB_WIDTH),
-                  .height = bswap32(FB_HEIGHT),
-                  .stride = bswap32(FB_WIDTH * sizeof(uint32_t))};
+                  .width = bswap32(width),
+                  .height = bswap32(height),
+                  .stride = bswap32(width * sizeof(uint32_t))};
 
   // Execute DMA Transfer to tell QEMU where the buffer is
   FWCfgDmaAccess dma = {.control = bswap32((ramfb_select << 16) |
@@ -106,55 +146,10 @@ void ramfb_init(void) {
   while (volatile_dma->control != 0) {
     __asm__ __volatile__("nop");
   }
-}
 
-uint32_t *ramfb_get_buffer() { return g_framebuffer; }
-
-int ramfb_present(uint32_t *fb, uint32_t w, uint32_t h) {
-  // Calculate fixed-point step ratios: (src_dim << 16) / dst_dim
-  uint32_t step_x = (w << 16) / FB_WIDTH;
-  uint32_t step_y = (h << 16) / FB_HEIGHT;
-
-  uint32_t curr_y_fp = 0; // Fixed-point accumulator for Y
-
-  uint32_t *framebuffer = ramfb_get_buffer();
-
-  for (uint32_t dst_y = 0; dst_y < FB_HEIGHT; ++dst_y) {
-    // Extract integer Y source coordinate
-    uint32_t src_y = curr_y_fp >> 16;
-    if (src_y >= h) {
-      src_y = h - 1;
-    }
-
-    // Pointers to the current scanlines
-    const uint32_t *src_line = &fb[src_y * w];
-    uint32_t *dst_line = &framebuffer[dst_y * FB_WIDTH];
-
-    uint32_t curr_x_fp = 0; // Fixed-point accumulator for X
-
-    for (uint32_t dst_x = 0; dst_x < FB_WIDTH; ++dst_x) {
-      // Extract integer X source coordinate
-      uint32_t src_x = curr_x_fp >> 16;
-
-      if (src_x >= w) {
-        src_x = w - 1;
-      }
-
-      // Copy pixel
-      dst_line[dst_x] = src_line[src_x];
-
-      // Advance source X accumulator
-      curr_x_fp += step_x;
-    }
-
-    // Advance source Y accumulator
-    curr_y_fp += step_y;
-  }
-  return 0;
+  fb_register(framebuffer, width, height, width);
+  kprintf("ramfb: qemu framebuffer initialized (%ux%u, 32bpp)\n", width,
+          height);
 }
 
 void fb_init(void) { ramfb_init(); }
-uint32_t *fb_get_buffer(void) { return ramfb_get_buffer(); }
-int fb_present(uint32_t *fb, uint32_t w, uint32_t h) {
-  return ramfb_present(fb, w, h);
-}

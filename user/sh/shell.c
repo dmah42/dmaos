@@ -427,6 +427,8 @@ int main(void) {
 
     if (strcmp(cmdline, "exit") == 0) {
       exit(0);
+    } else if (strcmp(cmdline, "clear") == 0) {
+      printf("\033[2J\033[H");
     } else if (strcmp(cmdline, "kmesg") == 0) {
       kmesg_cmd();
     } else if (strncmp(cmdline, "cd", 2) == 0 &&

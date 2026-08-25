@@ -42,7 +42,7 @@ static const uint32_t g_ansi_palette[16] = {
 };
 
 // Console State
-static uint32_t g_scale = 2;
+static uint32_t g_scale = 3;
 static uint32_t g_cols = 0;
 static uint32_t g_rows = 0;
 static uint32_t g_cursor_col = 0;
@@ -79,6 +79,7 @@ static void fbcon_draw_glyph(uint32_t col, uint32_t row, uint8_t glyph,
     return;
   }
 
+  uint32_t width = fb_get_width();
   uint32_t pixel_x = col * 8 * g_scale;
   uint32_t pixel_y = row * 16 * g_scale;
   const uint8_t *bitmap = font_get_glyph(glyph);
@@ -86,7 +87,7 @@ static void fbcon_draw_glyph(uint32_t col, uint32_t row, uint8_t glyph,
   if (g_scale == 1) {
     for (uint32_t y = 0; y < 16; ++y) {
       uint8_t line = bitmap[y];
-      uint32_t *dst = &fb[(pixel_y + y) * FB_WIDTH + pixel_x];
+      uint32_t *dst = &fb[(pixel_y + y) * width + pixel_x];
       for (uint32_t x = 0; x < 8; ++x) {
         dst[x] = (line & (0x80 >> x)) ? fg : bg;
       }
@@ -96,7 +97,7 @@ static void fbcon_draw_glyph(uint32_t col, uint32_t row, uint8_t glyph,
     for (uint32_t y = 0; y < 16; ++y) {
       uint8_t line = bitmap[y];
       for (uint32_t sy = 0; sy < g_scale; ++sy) {
-        uint32_t *dst = &fb[(pixel_y + y * g_scale + sy) * FB_WIDTH + pixel_x];
+        uint32_t *dst = &fb[(pixel_y + y * g_scale + sy) * width + pixel_x];
         for (uint32_t x = 0; x < 8; ++x) {
           uint32_t color = (line & (0x80 >> x)) ? fg : bg;
           for (uint32_t sx = 0; sx < g_scale; ++sx) {
@@ -115,8 +116,9 @@ static void fbcon_scroll_up(void) {
     return;
   }
 
+  uint32_t width = fb_get_width();
   uint32_t row_height = 16 * g_scale;
-  uint32_t scanline_pixels = FB_WIDTH * row_height;
+  uint32_t scanline_pixels = width * row_height;
   uint32_t total_scroll_pixels = scanline_pixels * (g_rows - 1);
 
   // Move upper screen buffer up by one text row
@@ -237,8 +239,8 @@ static void fbcon_put_glyph(uint8_t glyph) {
 // Public API Implementation
 
 void fbcon_init(void) {
-  g_cols = FB_WIDTH / (8 * g_scale);
-  g_rows = FB_HEIGHT / (16 * g_scale);
+  g_cols = fb_get_width() / (8 * g_scale);
+  g_rows = fb_get_height() / (16 * g_scale);
   g_cursor_col = 0;
   g_cursor_row = 0;
   g_state = STATE_NORMAL;
@@ -256,7 +258,8 @@ void fbcon_clear(void) {
   if (!fb) {
     return;
   }
-  for (uint32_t i = 0; i < FB_WIDTH * FB_HEIGHT; ++i) {
+  uint32_t total_pixels = fb_get_width() * fb_get_height();
+  for (uint32_t i = 0; i < total_pixels; ++i) {
     fb[i] = g_bg_color;
   }
 }
@@ -266,8 +269,8 @@ void fbcon_set_scale(uint32_t scale) {
     scale = 1;
   }
   g_scale = scale;
-  g_cols = FB_WIDTH / (8 * g_scale);
-  g_rows = FB_HEIGHT / (16 * g_scale);
+  g_cols = fb_get_width() / (8 * g_scale);
+  g_rows = fb_get_height() / (16 * g_scale);
   if (g_cursor_col >= g_cols) {
     g_cursor_col = g_cols - 1;
   }
