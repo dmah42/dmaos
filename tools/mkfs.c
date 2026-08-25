@@ -139,6 +139,15 @@ uint32_t get_or_create_dir(const char *dir_path, struct dinode *file_inodes,
   return inum;
 }
 
+struct host_file_map {
+  dev_t dev;
+  ino_t ino;
+  uint32_t inum;
+};
+
+static struct host_file_map host_files[MAX_DIR_ENTRIES];
+static int num_host_files = 0;
+
 void add_file(const char *host_path, const char *fs_path,
               struct dinode *file_inodes, uint32_t *freeinode_ptr) {
   // Split fs_path into directory and file parts
@@ -164,6 +173,46 @@ void add_file(const char *host_path, const char *fs_path,
     exit(1);
   }
 
+  struct stat st;
+  if (stat(host_path, &st) < 0) {
+    fprintf(stderr, "error: cannot stat file %s\n", host_path);
+    exit(1);
+  }
+
+  // Check if this file is a hardlink to an already-added file
+  for (int i = 0; i < num_host_files; ++i) {
+    if (host_files[i].dev == st.st_dev && host_files[i].ino == st.st_ino) {
+      uint32_t existing_inum = host_files[i].inum;
+      file_inodes[existing_inum].nlink++;
+
+      uint32_t parent_inum =
+          get_or_create_dir(dir_part, file_inodes, freeinode_ptr);
+      int parent_idx = -1;
+      for (int j = 0; j < num_dirs; ++j) {
+        if (dirs[j].inum == parent_inum) {
+          parent_idx = j;
+          break;
+        }
+      }
+      if (parent_idx == -1) {
+        fprintf(stderr, "error: parent directory not found\n");
+        exit(1);
+      }
+      struct mkfs_dir *p_dir = &dirs[parent_idx];
+      if (p_dir->entry_count >= MAX_DIR_ENTRIES) {
+        fprintf(stderr, "error: directory full\n");
+        exit(1);
+      }
+      struct fsdirent de;
+      de.inum = existing_inum;
+      strcpy(de.name, file_part);
+      p_dir->entries[p_dir->entry_count++] = de;
+      printf("Hardlinked file '/%s' -> inum %d (nlink=%d)\n", fs_path,
+             existing_inum, file_inodes[existing_inum].nlink);
+      return;
+    }
+  }
+
   FILE *f = fopen(host_path, "rb");
   if (!f) {
     fprintf(stderr, "error: cannot open file %s\n", host_path);
@@ -176,6 +225,13 @@ void add_file(const char *host_path, const char *fs_path,
     fprintf(stderr, "error: out of inodes\n");
     fclose(f);
     exit(1);
+  }
+
+  if (num_host_files < MAX_DIR_ENTRIES) {
+    host_files[num_host_files].dev = st.st_dev;
+    host_files[num_host_files].ino = st.st_ino;
+    host_files[num_host_files].inum = inum;
+    ++num_host_files;
   }
 
   struct dinode *ip = &file_inodes[inum];
