@@ -3,11 +3,15 @@
 #include "k_fcntl.h"
 #include "kernel.h"
 #include "net.h"
+#include "pipe.h"
 #include "string.h"
 
 struct File file_table[GLOBAL_OPEN_FILE_LIMIT];
 
-void file_init(void) { memset(file_table, 0, sizeof(file_table)); }
+void file_init(void) {
+  memset(file_table, 0, sizeof(file_table));
+  pipe_module_init();
+}
 
 struct File *file_alloc(void) {
   for (int i = 0; i < GLOBAL_OPEN_FILE_LIMIT; ++i) {
@@ -62,6 +66,13 @@ void file_close(struct File *f) {
     } else if (f->type == FD_SOCKET && f->sock != NULL) {
       net_sock_close(f->sock);
       f->sock = NULL;
+    } else if (f->type == FD_PIPE && f->pipe != NULL) {
+      struct Pipe *p = f->pipe;
+      if (f->writable) {
+        p->write_closed = true;
+      }
+      --p->ref;
+      f->pipe = NULL;
     }
     f->type = FD_NONE;
   }

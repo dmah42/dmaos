@@ -17,8 +17,8 @@ void fs_init();
 
 int fs_create(const char *path, int flags);
 int fs_open(const char *path, int flags);
-int fs_read(int fd, char *buf, int n);
-int fs_write(int fd, const char *buf, int n);
+int fs_read(int fd, uint8_t *buf, int n);
+int fs_write(int fd, const uint8_t *buf, int n);
 int fs_close(int fd);
 int fs_ftruncate(int fd, int length);
 int fs_lseek(int fd, int offset, int whence);
@@ -37,4 +37,5 @@ int fs_mkdir(const char *path);
 struct inode *iget(uint32_t dev, uint32_t inum);
 struct inode *namei(const char *path);
 void iput(struct inode *ip);
-int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n);
+int readi(struct inode *ip, uint8_t *dst, uint32_t offset, uint32_t n);
+int writei(struct inode *ip, const uint8_t *src, uint32_t offset, uint32_t n);

@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------------
 void fbcon_init(void);
 void fbcon_putchar(char ch);
-void fbcon_write(const char *buf, uint32_t len);
+void fbcon_write(const uint8_t *buf, uint32_t len);
 void fbcon_clear(void);
 void fbcon_set_scale(uint32_t scale);
 void fbcon_set_colors(uint32_t fg, uint32_t bg);

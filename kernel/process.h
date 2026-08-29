@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fd_remap.h"
 #include "file.h"
 #include "fs.h"
 #include "page.h"
@@ -31,5 +32,6 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
 struct Process *get_current_process(void);
 void exit_current_process(int exit_code);
 void yield();
-int spawn_process(const char *filename);
+int spawn_process(const char *cmdline, const struct FdRemap *remaps,
+                  int remap_count);
 int wait_process(int pid);

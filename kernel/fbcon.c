@@ -387,11 +387,11 @@ void fbcon_putchar(char ch) {
   }
 }
 
-void fbcon_write(const char *buf, uint32_t len) {
+void fbcon_write(const uint8_t *buf, uint32_t len) {
   if (!buf) {
     return;
   }
   for (uint32_t i = 0; i < len; ++i) {
-    fbcon_putchar(buf[i]);
+    fbcon_putchar((char)buf[i]);
   }
 }

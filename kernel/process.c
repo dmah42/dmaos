@@ -1,6 +1,7 @@
 #include "process.h"
 
 #include "colors.h"
+#include "fd_remap.h"
 #include "file.h"
 #include "fs.h"
 #include "k_fcntl.h"
@@ -108,7 +109,7 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
     if (image != NULL) {
       memcpy((void *)page, image + off, copy_size);
     } else if (ip != NULL) {
-      readi(ip, (char *)page, off, copy_size);
+      readi(ip, (uint8_t *)page, off, copy_size);
     }
 
     map_page(page_table, USER_BASE + off, page,
@@ -345,9 +346,12 @@ void yield() {
 
 /*
  * Spawns a new process from a binary file in the filesystem.
- * Returns the PID of the new process, or -1 if the file does not exist.
+ * remaps is an optional array of FdRemap pairs that redirect file descriptors
+ * in the child (e.g. wire a pipe write-end to the child's stdout).
+ * Returns the PID of the new process, or -1 on failure.
  */
-int spawn_process(const char *cmdline) {
+int spawn_process(const char *cmdline, const struct FdRemap *remaps,
+                  int remap_count) {
   kprintf("spawn_process '%s'\n", cmdline);
   int argc = 0;
   char *argv[16];
@@ -386,6 +390,27 @@ int spawn_process(const char *cmdline) {
   if (proc == NULL) {
     return -1;
   }
+
+  /* Apply fd remaps: copy parent's file ref into child's ofile slot. */
+  struct Process *parent = get_current_process();
+  for (int i = 0; i < remap_count; ++i) {
+    int from = remaps[i].from;
+    int to = remaps[i].to;
+    if (from < 0 || from >= NUM_FILES_PER_PROCESS || to < 0 ||
+        to >= NUM_FILES_PER_PROCESS) {
+      continue;
+    }
+    struct File *src = parent->ofile[from];
+    if (src == NULL) {
+      continue;
+    }
+    /* Close whatever is currently in the child's target slot. */
+    if (proc->ofile[to] != NULL) {
+      file_close(proc->ofile[to]);
+    }
+    proc->ofile[to] = file_dup(src);
+  }
+
   return proc->pid;
 }
 

@@ -23,10 +23,12 @@ oh, and it runs DOOM.
   - **Device 0 (`disk.img`)**: System drive containing read-only system executables, configurations, and assets.
   - **Device 1 (`data.img`)**: Persistent data drive dynamically mounted at `/home`.
 
-### 3. Filesystem Layer
+### 3. Filesystem Layer & Pipes
 - **Staging-Based Image Builds**: The build system compiles and stages the entire filesystem tree under `build/$(ARCH)/root/` on the host, and the filesystem image utility `mkfs` recursively walks this staging root to produce raw disk images.
 - **Directories & Path Resolution**: Dynamic path resolution (`namei`/`namex`) with cross-boundary mount traversal and normalized path tracking.
 - **Stateful File Descriptors**: Process-level open file descriptor tracking (`proc->ofile` up to `NUM_FILES_PER_PROCESS`) mapped to a global descriptor table (`GLOBAL_OPEN_FILE_LIMIT`), with automatic cleanup and console warning prints on memory leak detection during process exit.
+- **Anonymous Pipes**: In-kernel ring buffer pipes (`FD_PIPE`) allocated via the `pipe()` system call with cooperative blocking and broken pipe detection (`ERR_BROKEN_PIPE`).
+- **File Descriptor Remapping**: `spawn` syscall supports descriptor remapping (`struct FdRemap`) to redirect child standard streams (`stdin`, `stdout`, `stderr`) to pipes or files.
 - **Write Protections**: Writes, folder creations, and deletions are prohibited on Device 0 and allowed only under the persistent `/home` directory (Device 1).
 - **Leak-Safe Overwriting**: Automatic block deallocation and file truncation (`itrunc`) when files are overwritten at offset 0.
 
@@ -56,11 +58,11 @@ oh, and it runs DOOM.
 - **Packaging & Deployment**: Automated image generation script (`tools/vf2/create_sdcard.sh`) preparing raw bootable GPT/MBR SD cards with SPL, U-Boot, and dmaOS partitions.
 
 ### 7. Shell & Command Utilities
-- **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, and path navigation.
+- **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, path navigation, and command pipelines (`cmd1 | cmd2`).
 - **User Library**:
   - Powered by the Newlib user-space standard library with dedicated 32-bit and 64-bit multilib configurations.
 - **User Utilities**:
-  - `cat` - read and display file contents.
+  - `cat` - read and display file contents (supports reading from `stdin` when no filename is specified).
   - `ls` - list directory structures.
   - `mkdir` - create persistent directories (restricted to `/home`).
   - `write` - write/append text strings to a file (always appends; restricted to `/home`).
@@ -161,8 +163,6 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
-- [ ] **Standard Streams & Shell Piping**:
-  - Introduce file descriptor tracking for standard streams (`stdin`, `stdout`, `stderr`) and implement kernel-supported pipe buffers (`pipe` syscall / `FD_PIPE`) to enable shell command pipelines (e.g., `cat file.txt | grep query` or `dmesg | less`).
 - [ ] **Terminal Pager (`less` / `more`)**:
   - Implement a paginated screen viewer utility to view long file contents and command output on the framebuffer console.
 - [ ] **Framebuffer Console Scrollback History**:

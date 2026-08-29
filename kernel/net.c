@@ -657,7 +657,7 @@ void net_load_config(void) {
     return;
   }
 
-  char buf[256];
+  uint8_t buf[256];
   memset(buf, 0, sizeof(buf));
   int n = readi(ip, buf, 0, sizeof(buf) - 1);
   iput(ip);
@@ -667,7 +667,7 @@ void net_load_config(void) {
   }
 
   // Parse NAMESERVER=<ip>
-  char *ns = strstr(buf, "NAMESERVER=");
+  char *ns = strstr((const char *)buf, "NAMESERVER=");
   if (ns) {
     ns += strlen("NAMESERVER=");
     while (*ns == ' ' || *ns == '\t') {

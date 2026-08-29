@@ -1,4 +1,5 @@
 #include "colors.h"
+#include "fd_remap.h"
 #include "fs_shared.h"
 #include "user.h"
 #include <fcntl.h>
@@ -173,7 +174,11 @@ void init_config(void) {
   }
 }
 
-void run_command(const char *cmdline) {
+static int execute_command(const char *cmdline, struct FdRemap *remaps,
+                           int nremaps) {
+  while (*cmdline == ' ') {
+    ++cmdline;
+  }
   // Extract command name (first word of cmdline)
   char cmd_name[MAX_CMD_NAME];
   int i = 0;
@@ -184,7 +189,7 @@ void run_command(const char *cmdline) {
   cmd_name[i] = '\0';
 
   if (i == 0) {
-    return;
+    return -1;
   }
 
   // Check if cmd_name has a slash
@@ -197,17 +202,14 @@ void run_command(const char *cmdline) {
   }
 
   if (has_slash) {
-    int pid = spawn(cmdline);
-    if (pid >= 0) {
-      wait(pid);
-    } else {
+    int pid = spawn(cmdline, remaps, nremaps);
+    if (pid < 0) {
       printf("unknown command: %s\n", cmdline);
     }
-    return;
+    return pid;
   }
 
   // Search in pre-parsed path_dirs
-  bool found = false;
   for (int d = 0; d < num_path_dirs; ++d) {
     const char *dir = path_dirs[d];
 
@@ -241,17 +243,58 @@ void run_command(const char *cmdline) {
                 sizeof(new_cmdline) - strlen(new_cmdline) - 1);
       }
 
-      int pid = spawn(new_cmdline);
-      if (pid >= 0) {
-        wait(pid);
-        found = true;
-        break;
+      int pid = spawn(new_cmdline, remaps, nremaps);
+      if (pid < 0) {
+        printf("unknown command: %s\n", cmdline);
       }
+      return pid;
     }
   }
 
-  if (!found) {
-    printf("unknown command: %s\n", cmdline);
+  printf("unknown command: %s\n", cmdline);
+  return -1;
+}
+
+void run_command(const char *cmdline) {
+  char *pipe_pos = strchr(cmdline, '|');
+  if (!pipe_pos) {
+    int pid = execute_command(cmdline, NULL, 0);
+    if (pid >= 0) {
+      wait(pid);
+    }
+    return;
+  }
+
+  char left[MAX_CMD_LEN];
+  size_t len = (size_t)(pipe_pos - cmdline);
+  if (len >= sizeof(left)) {
+    len = sizeof(left) - 1;
+  }
+  memcpy(left, cmdline, len);
+  left[len] = '\0';
+
+  const char *right = pipe_pos + 1;
+
+  int pfd[2];
+  if (pipe(pfd) < 0) {
+    printf("pipe: failed\n");
+    return;
+  }
+
+  struct FdRemap r1 = {pfd[1], 1};
+  struct FdRemap r2 = {pfd[0], 0};
+
+  int p1 = execute_command(left, &r1, 1);
+  int p2 = execute_command(right, &r2, 1);
+
+  close(pfd[0]);
+  close(pfd[1]);
+
+  if (p1 >= 0) {
+    wait(p1);
+  }
+  if (p2 >= 0) {
+    wait(p2);
   }
 }
 

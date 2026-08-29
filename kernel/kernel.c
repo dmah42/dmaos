@@ -12,6 +12,7 @@
 #include "k_stat.h"
 #include "net.h"
 #include "page.h"
+#include "pipe.h"
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
@@ -334,7 +335,7 @@ void handle_syscall(struct trap_frame *f) {
   }
   case SYSCALL_READ: {
     int fd = f->a0;
-    char *buf = (char *)f->a1;
+    uint8_t *buf = (uint8_t *)f->a1;
     int n = f->a2;
     if (n <= 0 || !validate_user_write_buffer(buf, n)) {
       kprintf("read: invalid buffer or size %d\n", n);
@@ -346,7 +347,7 @@ void handle_syscall(struct trap_frame *f) {
   }
   case SYSCALL_WRITE: {
     int fd = f->a0;
-    const char *buf = (const char *)f->a1;
+    const uint8_t *buf = (const uint8_t *)f->a1;
     int n = f->a2;
     if (n > 0 && !validate_user_read_buffer(buf, n)) {
       kprintf("write: invalid buffer or size %d\n", n);
@@ -461,12 +462,21 @@ void handle_syscall(struct trap_frame *f) {
   }
   case SYSCALL_SPAWN: {
     const char *cmdline = (const char *)f->a0;
+    const struct FdRemap *remaps = (const struct FdRemap *)f->a1;
+    int remap_count = (int)f->a2;
     kprintf("spawn: '%s'\n", cmdline);
     if (!validate_user_string(cmdline)) {
       kprintf("spawn: invalid cmdline pointer\n");
       f->a0 = -1;
     } else {
-      int ret = spawn_process(cmdline);
+      if (remap_count > 0 &&
+          !validate_user_read_buffer(remaps,
+                                     remap_count * sizeof(struct FdRemap))) {
+        kprintf("spawn: invalid remap table\n");
+        f->a0 = -1;
+        break;
+      }
+      int ret = spawn_process(cmdline, remaps, remap_count);
       if (ret < 0) {
         kprintf("spawn: failed to spawn '%s'\n", cmdline);
       }
@@ -704,6 +714,51 @@ void handle_syscall(struct trap_frame *f) {
       break;
     }
     f->a0 = sys_dns_lookup(name, ip_out);
+    break;
+  }
+  case SYSCALL_PIPE: {
+    int *fds = (int *)f->a0;
+    if (!validate_user_write_buffer(fds, 2 * sizeof(int))) {
+      kprintf("pipe: invalid fds pointer\n");
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    struct File *rfile = NULL, *wfile = NULL;
+    int ret = file_pipe(&rfile, &wfile);
+    if (ret < 0) {
+      kprintf("pipe: failed to allocate pipe\n");
+      f->a0 = ret;
+      break;
+    }
+    struct Process *proc = get_current_process();
+    int rfd = -1, wfd = -1;
+    for (int i = 0; i < NUM_FILES_PER_PROCESS && (rfd < 0 || wfd < 0); ++i) {
+      if (proc->ofile[i] == NULL) {
+        if (rfd < 0) { proc->ofile[i] = rfile; rfd = i; }
+        else         { proc->ofile[i] = wfile; wfd = i; }
+      }
+    }
+    if (rfd < 0 || wfd < 0) {
+      if (rfd >= 0) { proc->ofile[rfd] = NULL; }
+      file_close(rfile);
+      file_close(wfile);
+      f->a0 = ERR_NO_SPACE;
+      break;
+    }
+    fds[0] = rfd;
+    fds[1] = wfd;
+    f->a0 = 0;
+    break;
+  }
+  case SYSCALL_ISATTY: {
+    int fd = f->a0;
+    struct Process *proc = get_current_process();
+    if (fd >= 0 && fd < NUM_FILES_PER_PROCESS && proc->ofile[fd] != NULL &&
+        proc->ofile[fd]->type == FD_CONSOLE) {
+      f->a0 = 1;
+    } else {
+      f->a0 = 0;
+    }
     break;
   }
   default:

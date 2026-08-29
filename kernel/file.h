@@ -2,6 +2,8 @@
 
 #include "fs.h"
 #include "net.h"
+#include "pipe.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -13,6 +15,7 @@ enum FileDescType {
   FD_INODE = 1,
   FD_CONSOLE = 2,
   FD_SOCKET = 3,
+  FD_PIPE = 4,
 };
 
 struct File {
@@ -23,6 +26,7 @@ struct File {
   union {
     struct inode *ip;
     struct socket *sock;
+    struct Pipe *pipe;
   };
   uint32_t off;
 };
@@ -32,3 +36,4 @@ struct File *file_alloc(void);
 struct File *file_create(enum FileDescType type, int flags);
 struct File *file_dup(struct File *f);
 void file_close(struct File *f);
+int file_pipe(struct File **rout, struct File **wout);

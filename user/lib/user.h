@@ -1,11 +1,12 @@
 #pragma once
 
+#include "fd_remap.h"
 #include "sys/types.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 
-int spawn(const char *name);
+int spawn(const char *name, struct FdRemap *remaps, int remap_count);
 void yield(void);
 int wait(int pid);
 int kmesg(char *buf, int buf_len);

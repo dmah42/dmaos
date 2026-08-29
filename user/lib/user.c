@@ -129,7 +129,13 @@ uint64_t uptime(void) {
 // ---------------------------------------------------------------------------
 
 void yield(void) { syscall1(SYSCALL_YIELD, 0); }
-int spawn(const char *name) { return syscall1(SYSCALL_SPAWN, (uintptr_t)name); }
+int spawn(const char *name, struct FdRemap *remaps, int remap_count) {
+  return syscall3(SYSCALL_SPAWN, (uintptr_t)name, (uintptr_t)remaps,
+                  (uintptr_t)remap_count);
+}
+int pipe(int fds[2]) {
+  return handle_retval(syscall1(SYSCALL_PIPE, (uintptr_t)fds));
+}
 int wait(int pid) { return syscall1(SYSCALL_WAIT, pid); }
 int kmesg(char *buf, int buf_len) {
   return syscall2(SYSCALL_KMESG, (uintptr_t)buf, buf_len);
@@ -204,7 +210,7 @@ int _fstat(int fd, struct stat *st) {
 
 int _getpid(void) { return 1; }
 
-int _isatty(int fd) { return (fd >= 0 && fd <= 2) ? 1 : 0; }
+int _isatty(int fd) { return syscall1(SYSCALL_ISATTY, fd); }
 
 int _kill(int pid, int sig) {
   (void)pid;
@@ -245,7 +251,7 @@ int _open(const char *path, int flags, ...) {
 }
 
 int _read(int fd, void *buf, size_t count) {
-  if (fd == 0) {
+  if (fd == STDIN_FILENO && _isatty(STDIN_FILENO)) {
     char *cbuf = (char *)buf;
     size_t num_read = 0;
     int vmin = stdin_termios.c_cc[VMIN];
@@ -328,7 +334,7 @@ int framebuffer_present(uint32_t *framebuffer, uint32_t width,
 }
 
 int _write(int fd, const void *buf, size_t count) {
-  if (fd == 1 || fd == 2) {
+  if ((fd == STDOUT_FILENO || fd == STDERR_FILENO) && _isatty(fd)) {
     const char *cbuf = (const char *)buf;
     for (size_t i = 0; i < count; i++)
       syscall1(SYSCALL_PUTCHAR, cbuf[i]);
@@ -338,7 +344,7 @@ int _write(int fd, const void *buf, size_t count) {
 }
 
 int _fcntl(int fd, int cmd, int arg) {
-  if (fd == 0) {
+  if (fd == STDIN_FILENO) {
     if (cmd == F_GETFL)
       return stdin_flags;
     if (cmd == F_SETFL) {
@@ -356,7 +362,7 @@ int _ioctl(int fd, unsigned long request, ...) {
   void *arg = va_arg(ap, void *);
   va_end(ap);
 
-  if (fd == 0) {
+  if (fd == STDIN_FILENO) {
     if (request == TCGETS) {
       memcpy(arg, &stdin_termios, sizeof(struct termios));
       return 0;
@@ -424,7 +430,8 @@ int chdir(const char *path) {
 }
 
 int mkdir(const char *path, mode_t mode) {
-  return handle_retval(syscall2(SYSCALL_MKDIR, (uintptr_t)path, (uintptr_t)mode));
+  return handle_retval(
+      syscall2(SYSCALL_MKDIR, (uintptr_t)path, (uintptr_t)mode));
 }
 
 int ftruncate(int fd, off_t length) {
@@ -493,7 +500,8 @@ int socket(int domain, int type, int protocol) {
 }
 
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-  return handle_retval(syscall3(SYSCALL_BIND, sockfd, (uintptr_t)addr, addrlen));
+  return handle_retval(
+      syscall3(SYSCALL_BIND, sockfd, (uintptr_t)addr, addrlen));
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
@@ -519,7 +527,8 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen) {
   return handle_retval(syscall6(SYSCALL_RECVFROM, sockfd, (uintptr_t)buf, len,
-                                flags, (uintptr_t)src_addr, (uintptr_t)addrlen));
+                                flags, (uintptr_t)src_addr,
+                                (uintptr_t)addrlen));
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {

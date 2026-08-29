@@ -7,6 +7,7 @@
 #include "k_fcntl.h"
 #include "kernel.h"
 #include "net.h"
+#include "pipe.h"
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
@@ -180,7 +181,7 @@ static uint32_t bmap(struct inode *ip, uint32_t bn) {
 /*
  * Reads file contents from the specified inode.
  */
-int readi(struct inode *ip, char *dst, uint32_t offset, uint32_t n) {
+int readi(struct inode *ip, uint8_t *dst, uint32_t offset, uint32_t n) {
   if (ip == NULL) {
     kprintf("readi: NULL inode pointer\n");
     return -1;
@@ -232,7 +233,7 @@ static struct inode *dirlookup(struct inode *dp, const char *name,
 
   struct fsdirent de;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
-    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    if (readi(dp, (uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
       kprintf("dirlookup: readi failed reading directory entries of inum %d\n",
               dp->inum);
       return NULL;
@@ -416,7 +417,7 @@ int fs_get_file_name(int index, char *buf, int buf_len) {
   struct fsdirent de;
   int current_index = 0;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
-    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    if (readi(dp, (uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
       iput(dp);
       return -1;
     }
@@ -457,7 +458,7 @@ int fs_get_file_size(int index) {
   struct fsdirent de;
   int current_index = 0;
   for (uint32_t off = 0; off < dp->dinode.size; off += sizeof(de)) {
-    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    if (readi(dp, (uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
       iput(dp);
       return -1;
     }
@@ -737,7 +738,7 @@ static uint32_t bmap_alloc(struct inode *ip, uint32_t bn) {
   return 0;
 }
 
-int writei(struct inode *ip, const char *src, uint32_t offset, uint32_t n) {
+int writei(struct inode *ip, const uint8_t *src, uint32_t offset, uint32_t n) {
   if (ip == NULL) {
     kprintf("write: attempt to write to null ip");
     return -1;
@@ -896,7 +897,7 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
   struct fsdirent de;
   uint32_t off;
   for (off = 0; off < dp->dinode.size; off += sizeof(de)) {
-    if (readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    if (readi(dp, (uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
       return -1;
     }
     if (de.inum == 0) {
@@ -907,7 +908,7 @@ int dirlink(struct inode *dp, const char *name, uint32_t inum) {
   de.inum = inum;
   strncpy(de.name, name, DIRSIZ);
   de.name[DIRSIZ - 1] = '\0';
-  if (writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+  if (writei(dp, (const uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
     return -1;
   }
   return 0;
@@ -1016,7 +1017,7 @@ int fs_open(const char *path, int flags) {
   return alloc_file_descriptor(ip, flags);
 }
 
-int fs_read(int fd, char *buf, int n) {
+int fs_read(int fd, uint8_t *buf, int n) {
   struct Process *proc = get_current_process();
   if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
     return ERR_BAD_FILE;
@@ -1030,12 +1031,12 @@ int fs_read(int fd, char *buf, int n) {
   }
 
   if (f->type == FD_CONSOLE) {
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; ++i) {
       long ch;
       while ((ch = getchar()) < 0) {
         yield();
       }
-      buf[i] = (char)ch;
+      buf[i] = (uint8_t)ch;
     }
     return n;
   } else if (f->type == FD_INODE) {
@@ -1046,12 +1047,14 @@ int fs_read(int fd, char *buf, int n) {
     return r;
   } else if (f->type == FD_SOCKET) {
     return net_sock_read(f->sock, buf, n);
+  } else if (f->type == FD_PIPE) {
+    return pipe_read(f->pipe, buf, n);
   } else {
     PANIC("unsupported file desc type %d", f->type);
   }
 }
 
-int fs_write(int fd, const char *buf, int n) {
+int fs_write(int fd, const uint8_t *buf, int n) {
   struct Process *proc = get_current_process();
   if (fd < 0 || fd >= NUM_FILES_PER_PROCESS || proc->ofile[fd] == NULL) {
     return ERR_BAD_FILE;
@@ -1075,6 +1078,8 @@ int fs_write(int fd, const char *buf, int n) {
     return w < 0 ? ERR_NO_SPACE : w;
   } else if (f->type == FD_SOCKET) {
     return net_sock_write(f->sock, buf, n);
+  } else if (f->type == FD_PIPE) {
+    return pipe_write(f->pipe, buf, n);
   } else {
     PANIC("unsupported file desc type: %d", f->type);
   }
@@ -1174,7 +1179,7 @@ int fs_mkdir(const char *path) {
   memset(&dot, 0, sizeof(dot));
   dot.inum = ip->inum;
   strncpy(dot.name, ".", sizeof(dot.name) - 1);
-  if (writei(ip, (char *)&dot, 0, sizeof(dot)) != sizeof(dot)) {
+  if (writei(ip, (const uint8_t *)&dot, 0, sizeof(dot)) != sizeof(dot)) {
     iput(ip);
     iput(dp);
     return ERR_NO_SPACE;
@@ -1184,7 +1189,7 @@ int fs_mkdir(const char *path) {
   memset(&dotdot, 0, sizeof(dotdot));
   dotdot.inum = dp->inum;
   strncpy(dotdot.name, "..", sizeof(dotdot.name) - 1);
-  if (writei(ip, (char *)&dotdot, sizeof(dot), sizeof(dotdot)) !=
+  if (writei(ip, (const uint8_t *)&dotdot, sizeof(dot), sizeof(dotdot)) !=
       sizeof(dotdot)) {
     iput(ip);
     iput(dp);
@@ -1205,7 +1210,7 @@ int fs_mkdir(const char *path) {
 static bool is_dir_empty(struct inode *ip) {
   struct fsdirent de;
   for (uint32_t off = 0; off < ip->dinode.size; off += sizeof(de)) {
-    if (readi(ip, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+    if (readi(ip, (uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
       return false;
     }
     if (de.inum != 0) {
@@ -1254,7 +1259,7 @@ int fs_rm(const char *path) {
 
   struct fsdirent de;
   memset(&de, 0, sizeof(de));
-  if (writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de)) {
+  if (writei(dp, (const uint8_t *)&de, off, sizeof(de)) != sizeof(de)) {
     kprintf("fs_rm: failed to clear directory entry\n");
     iput(ip);
     iput(dp);
