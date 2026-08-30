@@ -255,9 +255,111 @@ static int execute_command(const char *cmdline, struct FdRemap *remaps,
   return -1;
 }
 
+struct Builtin {
+  const char *name;
+  void (*func)(const char *args, int out_fd);
+};
+
+static void builtin_exit(const char *args, int out_fd) {
+  (void)args;
+  (void)out_fd;
+  exit(0);
+}
+
+static void builtin_clear(const char *args, int out_fd) {
+  (void)args;
+  write(out_fd, "\033[2J\033[H", 7);
+}
+
+static void builtin_kmesg(const char *args, int out_fd) {
+  (void)args;
+  char buf[4097];
+  int len = kmesg(buf, sizeof(buf) - 1);
+  if (len > 0) {
+    write(out_fd, buf, len);
+  }
+}
+
+static void builtin_cd(const char *args, int out_fd) {
+  while (*args == ' ') {
+    ++args;
+  }
+  const char *path = (*args == '\0') ? "/" : args;
+  int ret = chdir(path);
+  if (ret < 0) {
+    char err_msg[256];
+    snprintf(err_msg, sizeof(err_msg), "cd: %s: %s\n", path, strerror(ret));
+    write(out_fd, err_msg, strlen(err_msg));
+  }
+}
+
+static const struct Builtin builtins[] = {
+    {"exit", builtin_exit},
+    {"clear", builtin_clear},
+    {"kmesg", builtin_kmesg},
+    {"cd", builtin_cd},
+};
+
+static bool is_builtin(const char *cmdline) {
+  while (*cmdline == ' ') {
+    ++cmdline;
+  }
+  if (*cmdline == '\0') {
+    return false;
+  }
+
+  char cmd_name[MAX_CMD_NAME];
+  int i = 0;
+  while (cmdline[i] && cmdline[i] != ' ' && i < (int)sizeof(cmd_name) - 1) {
+    cmd_name[i] = cmdline[i];
+    ++i;
+  }
+  cmd_name[i] = '\0';
+
+  for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); ++b) {
+    if (strcmp(cmd_name, builtins[b].name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool run_builtin(const char *cmdline, int out_fd) {
+  while (*cmdline == ' ') {
+    ++cmdline;
+  }
+  if (*cmdline == '\0') {
+    return false;
+  }
+
+  char cmd_name[MAX_CMD_NAME];
+  int i = 0;
+  while (cmdline[i] && cmdline[i] != ' ' && i < (int)sizeof(cmd_name) - 1) {
+    cmd_name[i] = cmdline[i];
+    ++i;
+  }
+  cmd_name[i] = '\0';
+
+  const char *args = cmdline + i;
+  while (*args == ' ') {
+    ++args;
+  }
+
+  for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); ++b) {
+    if (strcmp(cmd_name, builtins[b].name) == 0) {
+      builtins[b].func(args, out_fd);
+      return true;
+    }
+  }
+  return false;
+}
+
 void run_command(const char *cmdline) {
   char *pipe_pos = strchr(cmdline, '|');
   if (!pipe_pos) {
+    if (run_builtin(cmdline, STDOUT_FILENO)) {
+      return;
+    }
     int pid = execute_command(cmdline, NULL, 0);
     if (pid >= 0) {
       wait(pid);
@@ -281,9 +383,21 @@ void run_command(const char *cmdline) {
     return;
   }
 
-  struct FdRemap r1 = {pfd[1], 1};
   struct FdRemap r2 = {pfd[0], 0};
 
+  // If the left command is a builtin, spawn the reader first so it runs concurrently
+  if (is_builtin(left)) {
+    int p2 = execute_command(right, &r2, 1);
+    close(pfd[0]);
+    run_builtin(left, pfd[1]);
+    close(pfd[1]);
+    if (p2 >= 0) {
+      wait(p2);
+    }
+    return;
+  }
+
+  struct FdRemap r1 = {pfd[1], 1};
   int p1 = execute_command(left, &r1, 1);
   int p2 = execute_command(right, &r2, 1);
 
@@ -295,29 +409,6 @@ void run_command(const char *cmdline) {
   }
   if (p2 >= 0) {
     wait(p2);
-  }
-}
-
-void kmesg_cmd(void) {
-  char buf[4097];
-  int len = kmesg(buf, sizeof(buf) - 1);
-  if (len >= 0) {
-    buf[len] = '\0';
-  }
-  printf("%s", buf);
-}
-
-void cd_cmd(const char *cmdline) {
-  const char *path = cmdline + 2;
-  while (*path == ' ') {
-    ++path;
-  }
-  if (*path == '\0') {
-    path = "/";
-  }
-  int ret = chdir(path);
-  if (ret < 0) {
-    printf("cd: %s: %s\n", path, strerror(ret));
   }
 }
 
@@ -466,18 +557,6 @@ int main(void) {
 
     if (cmdline[0] != '\0') {
       history_add(cmdline);
-    }
-
-    if (strcmp(cmdline, "exit") == 0) {
-      exit(0);
-    } else if (strcmp(cmdline, "clear") == 0) {
-      printf("\033[2J\033[H");
-    } else if (strcmp(cmdline, "kmesg") == 0) {
-      kmesg_cmd();
-    } else if (strncmp(cmdline, "cd", 2) == 0 &&
-               (cmdline[2] == ' ' || cmdline[2] == '\0')) {
-      cd_cmd(cmdline);
-    } else if (cmdline[0] != '\0') {
       run_command(cmdline);
     }
   }

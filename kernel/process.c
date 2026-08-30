@@ -200,6 +200,20 @@ void exit_current_process(int exit_code) {
           current_proc->pid, exit_code);
   current_proc->state = PROCSTATE_EXITED;
   current_proc->exit_code = exit_code;
+
+  if (current_proc->cwd != NULL) {
+    iput(current_proc->cwd);
+    current_proc->cwd = NULL;
+  }
+
+  for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
+    if (current_proc->ofile[fd] != NULL) {
+      kprintf(RED "process exit: PID %d leaked file descriptor %d!\n" DEFAULT,
+              current_proc->pid, fd);
+      file_close(current_proc->ofile[fd]);
+      current_proc->ofile[fd] = NULL;
+    }
+  }
 }
 
 void free_process_pages(struct Process *proc) {
@@ -210,8 +224,6 @@ void free_process_pages(struct Process *proc) {
 
   for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
     if (proc->ofile[fd] != NULL) {
-      kprintf(RED "process exit: PID %d leaked file descriptor %d!\n" DEFAULT,
-              proc->pid, fd);
       file_close(proc->ofile[fd]);
       proc->ofile[fd] = NULL;
     }

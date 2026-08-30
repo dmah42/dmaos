@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +29,10 @@
 #define TIOCGWINSZ 0x5413
 
 // Termios state for stdin (fd 0)
-static struct termios stdin_termios = {.c_cc = {[VMIN] = 1, [VTIME] = 0}};
+static struct termios stdin_termios = {
+    .c_lflag = ICANON | ECHO,
+    .c_cc = {[VMIN] = 1, [VTIME] = 0},
+};
 
 // Flags state for stdin (fd 0)
 static int stdin_flags = 0;
@@ -175,10 +179,9 @@ start(void) {
 // ---------------------------------------------------------------------------
 
 void _exit(int status) {
-  (void)status;
-  syscall1(SYSCALL_EXIT, 0);
-  for (;;)
-    ;
+  syscall1(SYSCALL_EXIT, status);
+  while (true) {
+  }
 }
 
 int _close(int fd) { return handle_retval(syscall1(SYSCALL_CLOSE, fd)); }
@@ -256,11 +259,15 @@ int _read(int fd, void *buf, size_t count) {
     size_t num_read = 0;
     int vmin = stdin_termios.c_cc[VMIN];
     int vtime = stdin_termios.c_cc[VTIME];
+    bool is_canon = (stdin_termios.c_lflag & ICANON) != 0;
 
     if (stdin_flags & O_NONBLOCK) {
       while (num_read < count) {
         int ch = syscall1(SYSCALL_GETCHAR, 0);
         if (ch >= 0) {
+          if (is_canon && ch == 4 /* Ctrl+D */) {
+            break;
+          }
           cbuf[num_read++] = (char)ch;
         } else {
           if (num_read == 0) {
@@ -276,10 +283,14 @@ int _read(int fd, void *buf, size_t count) {
     if (vmin == 0 && vtime == 0) {
       while (num_read < count) {
         int ch = syscall1(SYSCALL_GETCHAR, 0);
-        if (ch >= 0)
+        if (ch >= 0) {
+          if (is_canon && ch == 4 /* Ctrl+D */) {
+            break;
+          }
           cbuf[num_read++] = (char)ch;
-        else
+        } else {
           break;
+        }
       }
       return num_read;
     } else if (vmin == 0 && vtime > 0) {
@@ -288,6 +299,9 @@ int _read(int fd, void *buf, size_t count) {
       while (num_read < count) {
         int ch = syscall1(SYSCALL_GETCHAR, 0);
         if (ch >= 0) {
+          if (is_canon && ch == 4 /* Ctrl+D */) {
+            break;
+          }
           cbuf[num_read++] = (char)ch;
           break;
         }
@@ -299,10 +313,14 @@ int _read(int fd, void *buf, size_t count) {
     } else {
       while (num_read < (size_t)vmin && num_read < count) {
         int ch = syscall1(SYSCALL_GETCHAR, 0);
-        if (ch >= 0)
+        if (ch >= 0) {
+          if (is_canon && ch == 4 /* Ctrl+D */) {
+            break;
+          }
           cbuf[num_read++] = (char)ch;
-        else
+        } else {
           syscall1(SYSCALL_YIELD, 0);
+        }
       }
       return num_read;
     }

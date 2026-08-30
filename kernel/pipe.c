@@ -91,21 +91,22 @@ int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
   return count;
 }
 
-/*
- * Write n bytes from buf into the pipe.
- * Yield-loops until there is space in the ring buffer.
- * Returns n on success, or ERR_BROKEN_PIPE if no readers remain.
- */
+// Write n bytes from buf into the pipe.
+// Yield-loops until there is space in the ring buffer.
+// Returns n on success, or ERR_BROKEN_PIPE if no readers remain.
 int pipe_write(struct Pipe *p, const uint8_t *buf, int n) {
   int written = 0;
   while (written < n) {
-    /* No readers left — only the writer holds a ref. */
-    if (p->ref <= 1) {
-      return ERR_BROKEN_PIPE;
-    }
     /* Yield-loop while ring buffer is full. */
     while ((p->write_pos - p->read_pos) >= PIPE_BUF_SIZE) {
+      if (p->ref <= 1) {
+        return ERR_BROKEN_PIPE;
+      }
       yield();
+    }
+    // No readers left — only the writer holds a ref.
+    if (p->ref <= 1) {
+      return ERR_BROKEN_PIPE;
     }
     p->buf[p->write_pos & (PIPE_BUF_SIZE - 1)] = buf[written++];
     ++p->write_pos;

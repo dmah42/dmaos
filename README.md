@@ -63,9 +63,10 @@ oh, and it runs DOOM.
   - Powered by the Newlib user-space standard library with dedicated 32-bit and 64-bit multilib configurations.
 - **User Utilities**:
   - `cat` - read and display file contents (supports reading from `stdin` when no filename is specified).
+  - `less` - terminal pager utility with interactive scrolling and pipeline support.
   - `ls` - list directory structures.
   - `mkdir` - create persistent directories (restricted to `/home`).
-  - `write` - write/append text strings to a file (always appends; restricted to `/home`).
+  - `write` - write/append text strings or stream `stdin` to a file (restricted to `/home`).
   - `rm` - remove files and empty directories (restricted to `/home`).
   - `kilo` - externally developed interactive terminal text editor using ANSI escape sequences.
   - `snake` - classic snake game.
