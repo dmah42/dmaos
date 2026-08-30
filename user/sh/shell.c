@@ -354,61 +354,132 @@ static bool run_builtin(const char *cmdline, int out_fd) {
   return false;
 }
 
+#define MAX_STAGES 8
+
 void run_command(const char *cmdline) {
-  char *pipe_pos = strchr(cmdline, '|');
-  if (!pipe_pos) {
-    if (run_builtin(cmdline, STDOUT_FILENO)) {
+  // Parse stages separated by '|'
+  char stages[MAX_STAGES][MAX_CMD_LEN];
+  int num_stages = 0;
+
+  const char *p = cmdline;
+  while (*p && num_stages < MAX_STAGES) {
+    const char *next_pipe = strchr(p, '|');
+    size_t stage_len;
+    if (next_pipe) {
+      stage_len = (size_t)(next_pipe - p);
+    } else {
+      stage_len = strlen(p);
+    }
+    if (stage_len >= MAX_CMD_LEN) {
+      stage_len = MAX_CMD_LEN - 1;
+    }
+    memcpy(stages[num_stages], p, stage_len);
+    stages[num_stages][stage_len] = '\0';
+
+    // Trim leading whitespace
+    char *s = stages[num_stages];
+    while (*s == ' ') {
+      memmove(s, s + 1, strlen(s));
+    }
+    // Trim trailing whitespace
+    size_t slen = strlen(s);
+    while (slen > 0 && s[slen - 1] == ' ') {
+      s[--slen] = '\0';
+    }
+
+    if (slen > 0) {
+      ++num_stages;
+    }
+
+    if (!next_pipe) {
+      break;
+    }
+    p = next_pipe + 1;
+  }
+
+  if (num_stages == 0) {
+    return;
+  }
+
+  // Single command (no pipes)
+  if (num_stages == 1) {
+    if (run_builtin(stages[0], STDOUT_FILENO)) {
       return;
     }
-    int pid = execute_command(cmdline, NULL, 0);
+    int pid = execute_command(stages[0], NULL, 0);
     if (pid >= 0) {
       wait(pid);
     }
     return;
   }
 
-  char left[MAX_CMD_LEN];
-  size_t len = (size_t)(pipe_pos - cmdline);
-  if (len >= sizeof(left)) {
-    len = sizeof(left) - 1;
-  }
-  memcpy(left, cmdline, len);
-  left[len] = '\0';
-
-  const char *right = pipe_pos + 1;
-
-  int pfd[2];
-  if (pipe(pfd) < 0) {
-    printf("pipe: failed\n");
-    return;
-  }
-
-  struct FdRemap r2 = {pfd[0], 0};
-
-  // If the left command is a builtin, spawn the reader first so it runs concurrently
-  if (is_builtin(left)) {
-    int p2 = execute_command(right, &r2, 1);
-    close(pfd[0]);
-    run_builtin(left, pfd[1]);
-    close(pfd[1]);
-    if (p2 >= 0) {
-      wait(p2);
+  // Create (num_stages - 1) pipes
+  int pipes[MAX_STAGES - 1][2];
+  for (int i = 0; i < num_stages - 1; ++i) {
+    if (pipe(pipes[i]) < 0) {
+      printf("pipe: failed\n");
+      for (int j = 0; j < i; ++j) {
+        close(pipes[j][0]);
+        close(pipes[j][1]);
+      }
+      return;
     }
-    return;
   }
 
-  struct FdRemap r1 = {pfd[1], 1};
-  int p1 = execute_command(left, &r1, 1);
-  int p2 = execute_command(right, &r2, 1);
-
-  close(pfd[0]);
-  close(pfd[1]);
-
-  if (p1 >= 0) {
-    wait(p1);
+  int pids[MAX_STAGES];
+  for (int i = 0; i < num_stages; ++i) {
+    pids[i] = -1;
   }
-  if (p2 >= 0) {
-    wait(p2);
+
+  bool first_is_builtin = is_builtin(stages[0]);
+  int start_stage = first_is_builtin ? 1 : 0;
+
+  for (int i = start_stage; i < num_stages; ++i) {
+    struct FdRemap remaps[2];
+    int nremaps = 0;
+
+    // stdin: from previous stage's pipe read-end
+    if (i > 0) {
+      remaps[nremaps].from = pipes[i - 1][0];
+      remaps[nremaps].to = 0;
+      ++nremaps;
+    }
+
+    // stdout: to current stage's pipe write-end
+    if (i < num_stages - 1) {
+      remaps[nremaps].from = pipes[i][1];
+      remaps[nremaps].to = 1;
+      ++nremaps;
+    }
+
+    pids[i] = execute_command(stages[i], remaps, nremaps);
+  }
+
+  if (first_is_builtin) {
+    // Close all pipe ends in shell EXCEPT pipes[0][1] (which stage 0 writes to)
+    for (int i = 0; i < num_stages - 1; ++i) {
+      close(pipes[i][0]);
+      if (i > 0) {
+        close(pipes[i][1]);
+      }
+    }
+
+    // Stream stage 0 builtin output to pipes[0][1]
+    run_builtin(stages[0], pipes[0][1]);
+    close(pipes[0][1]);
+  } else {
+    // Shell closes all pipe ends so only children hold references
+    for (int i = 0; i < num_stages - 1; ++i) {
+      close(pipes[i][0]);
+      close(pipes[i][1]);
+    }
+  }
+
+  // Wait for all spawned child processes
+  for (int i = 0; i < num_stages; ++i) {
+    if (pids[i] >= 0) {
+      wait(pids[i]);
+    }
   }
 }
 
