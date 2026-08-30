@@ -1,8 +1,10 @@
 #include "doomgeneric.h"
 
-#include "doomkeys.h"
-#include "user.h"
 #include <unistd.h>
+
+#include "doomkeys.h"
+#include "k_time.h"
+#include "user.h"
 
 void DG_Init(void) {
   /* Framebuffer is already up; nothing special needed here */
@@ -14,10 +16,6 @@ void DG_DrawFrame(void) {
 }
 
 void DG_SleepMs(uint32_t ms) { sleep_ms(ms); }
-
-// Ticks per millisecond on QEMU riscv virt board (10 MHz / 1000)
-#define QEMU_RISCV_TIMEBASE_FREQ 10000000ULL
-#define TICKS_PER_MS (QEMU_RISCV_TIMEBASE_FREQ / 1000ULL)
 
 uint32_t DG_GetTicksMs(void) { return (uint32_t)(uptime() / TICKS_PER_MS); }
 

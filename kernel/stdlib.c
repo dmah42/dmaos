@@ -1,5 +1,9 @@
 #include "stdlib.h"
 
+#include <stdint.h>
+
+#include "k_time.h"
+
 uint64_t uptime(void) {
 #if __riscv_xlen == 64
   uint64_t val;
@@ -17,9 +21,7 @@ uint64_t uptime(void) {
 #endif
 }
 
-uint32_t uptime_ms(void) {
-  return (uint32_t)(uptime() / 10000);
-}
+uint32_t uptime_ms(void) { return (uint32_t)(uptime() / TICKS_PER_MS); }
 
 uint32_t rand32(void) {
   static uint32_t state = 0x853c49e6;
@@ -49,6 +51,4 @@ int atoi(const char *s) {
   return sign * res;
 }
 
-int abs(int x) {
-  return (x < 0) ? -x : x;
-}
+int abs(int x) { return (x < 0) ? -x : x; }

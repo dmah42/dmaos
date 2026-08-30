@@ -1,12 +1,15 @@
 #include "user.h"
+
 #include "arpa/inet.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
+#include "k_time.h"
 #include "netdb.h"
 #include "netinet/in.h"
 #include "sys/k_ioctl.h"
 #include "sys/socket.h"
 #include "syscall.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -16,6 +19,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/times.h>
 #include <sys/types.h>
 #include <termios.h>
 #include <time.h>
@@ -413,8 +417,8 @@ int _gettimeofday(struct timeval *tv, void *tz) {
   (void)tz;
   if (tv) {
     uint64_t ticks = uptime();
-    tv->tv_sec = ticks / 10000000;
-    tv->tv_usec = (ticks % 10000000) / 10;
+    tv->tv_sec = ticks / TICKS_PER_SEC;
+    tv->tv_usec = (ticks % TICKS_PER_SEC) / TICKS_PER_US;
   }
   return 0;
 }
@@ -425,8 +429,8 @@ int _nanosleep(const struct timespec *req, struct timespec *rem) {
     return -1;
   }
   uint64_t start_time = uptime();
-  uint64_t ticks =
-      (uint64_t)req->tv_sec * 10000000 + (uint64_t)req->tv_nsec / 100;
+  uint64_t ticks = (uint64_t)req->tv_sec * TICKS_PER_SEC +
+                   (uint64_t)req->tv_nsec / (1000000000ULL / TICKS_PER_SEC);
   while (1) {
     if (uptime() - start_time >= ticks)
       break;
@@ -437,6 +441,17 @@ int _nanosleep(const struct timespec *req, struct timespec *rem) {
     rem->tv_nsec = 0;
   }
   return 0;
+}
+
+clock_t _times(struct tms *buf) {
+  clock_t clk = (clock_t)(uptime() / TICKS_PER_MS);
+  if (buf) {
+    buf->tms_utime = clk;
+    buf->tms_stime = 0;
+    buf->tms_cutime = 0;
+    buf->tms_cstime = 0;
+  }
+  return clk;
 }
 
 void *_sbrk(int incr) {
@@ -467,7 +482,7 @@ char *getcwd(char *buf, size_t size) {
 
 void sleep_ms(uint32_t ms) {
   uint64_t start = uptime();
-  uint64_t ticks = (uint64_t)ms * 10000;
+  uint64_t ticks = (uint64_t)ms * TICKS_PER_MS;
   while (uptime() - start < ticks) {
     yield();
   }

@@ -1,6 +1,7 @@
 #include "fbcon.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "fb.h"
 #include "font8x16.h"
@@ -62,7 +63,6 @@ enum AnsiState {
 static enum AnsiState g_state = STATE_NORMAL;
 static int g_esc_args[MAX_ESC_ARGS];
 static int g_esc_argc = 0;
-static bool g_is_private = false;
 
 // Multi-byte UTF-8 Buffer State
 static uint8_t g_utf8_buf[UTF8_BUF_SIZE];
@@ -215,7 +215,6 @@ static void fbcon_handle_csi(char cmd) {
     break;
   case 'h':
   case 'l':
-    // Private mode flag handler (e.g. ?25h, ?25l)
     break;
   default:
     break;
@@ -361,7 +360,6 @@ void fbcon_putchar(char ch) {
       g_state = STATE_CSI;
       g_esc_argc = 0;
       g_esc_args[0] = 0;
-      g_is_private = false;
     } else {
       g_state = STATE_NORMAL;
     }
@@ -376,7 +374,6 @@ void fbcon_putchar(char ch) {
         g_esc_args[g_esc_argc] = 0;
       }
     } else if (byte == '?') {
-      g_is_private = true;
     } else if (byte >= 0x40 && byte <= 0x7E) {
       fbcon_handle_csi((char)byte);
       g_state = STATE_NORMAL;

@@ -74,6 +74,9 @@ oh, and it runs DOOM.
   - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
   - `nslookup` - DNS query utility resolving domain hostnames to IPv4 addresses.
   - `doom` - classic DOOM (shareware episode 1) via `doomgeneric`.
+  - `lua` - standalone Lua 5.4 scripting interpreter and interactive REPL (`/bin/lua`).
+    - *Features*: Full core language and standard libraries (`math`, `string`, `table`, `io`, `os`, `coroutine`, `utf8`, `debug`).
+    - *Constraints*: Statically compiled pure ANSI C runtime without dynamic library loading (`.so` / `dlopen`). External modules must be pure Lua scripts or statically compiled into the binary. Networking/sockets are not included in the standard Lua distribution.
 
 ---
 

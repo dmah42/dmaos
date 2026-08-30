@@ -3,8 +3,8 @@
 #
 
 # User programs, assets, and configs to stage
-uprogs := cat doom gfxtest hello kilo less ls memtest mkdir nettest nslookup rm snake write
-utxts := hello.txt lorem.txt meow.txt doom1.wad #doom2.wad doom3.wad
+uprogs := cat doom gfxtest hello kilo less ls lua memtest mkdir nettest nslookup rm snake write
+utxts := hello.txt lorem.txt meow.txt test.lua httpd.lua doom1.wad #doom2.wad doom3.wad
 uconfigs := dmash.cfg net.cfg
 
 # Toolchain flags for userland
@@ -45,6 +45,11 @@ $(BUILD_DIR)/user/sh/shell.bin.o: $(BUILD_DIR)/user/sh/shell.bin
 $(BUILD_DIR)/user/bin/kilo.o: third_party/kilo/kilo.c
 	@mkdir -p $(dir $@)
 	$(cc) $(user_cflags) -Wno-char-subscripts -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+
+# Lua 5.4 Interpreter
+$(BUILD_DIR)/user/bin/lua.o: third_party/lua/onelua.c
+	@mkdir -p $(dir $@)
+	$(cc) $(user_cflags) -Ithird_party/lua -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
 # DOOM (doomgeneric)
 DOOM_DIR := third_party/doomgeneric/doomgeneric
