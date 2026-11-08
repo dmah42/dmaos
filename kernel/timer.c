@@ -17,6 +17,8 @@
 
 #define TICK_INTERVAL ((uint64_t)SCHED_TICK_MS * TICKS_PER_MS)
 
+#define SIP_STIP (1 << 5)
+
 static bool use_time_ext = false;
 static uint64_t ticks = 0;
 
@@ -37,10 +39,20 @@ static void sbi_set_timer(uint64_t deadline) {
   }
 }
 
-// Arms the timer one interval from now. Measuring from now rather than from
-// the previous deadline means a tick delayed by a long kernel operation
-// doesn't cause a burst of catch-up interrupts.
-static void timer_arm(void) { sbi_set_timer(uptime() + TICK_INTERVAL); }
+static uint64_t next_deadline = 0;
+
+// Arms the timer one interval after the previous deadline, so handling latency
+// doesn't make the tick drift. If that deadline has already passed (a tick was
+// delayed by a long kernel operation), the next one is measured from now
+// instead, so there is no burst of catch-up interrupts.
+static void timer_arm(void) {
+  uint64_t now = uptime();
+  next_deadline += TICK_INTERVAL;
+  if (next_deadline <= now) {
+    next_deadline = now + TICK_INTERVAL;
+  }
+  sbi_set_timer(next_deadline);
+}
 
 void timer_init(void) {
   struct sbiret ret = sbi_call(SBI_EXT_TIME, 0, 0, 0, 0, 0,
@@ -51,16 +63,32 @@ void timer_init(void) {
   timer_arm();
 }
 
-void timer_tick(void) {
+// Periodic kernel work, run once per tick. The kernel is never interrupted
+// (interrupts are only taken in U-mode), so non-reentrant subsystems are safe
+// to call here.
+static void timer_service(void) {
   timer_arm();
   ticks++;
+  wake_expired_sleepers();
 
-  // The kernel is never interrupted (interrupts are only taken in U-mode), so
-  // non-reentrant subsystems are safe to call here. Polling the network every
-  // tick keeps lwIP's timers running when no process is using a socket.
+  // Polling the network every tick keeps lwIP's timers running when no process
+  // is using a socket, and runs the lwIP callbacks that wake blocked sockets.
   net_poll();
+}
 
+void timer_tick(void) {
+  timer_service();
   yield();
+}
+
+void timer_idle_wait(void) {
+  // wfi resumes on an interrupt that is pending and enabled in sie even though
+  // sstatus.SIE is clear, so no trap is taken in S-mode. It may also resume
+  // spuriously, which is why STIP is checked.
+  __asm__ __volatile__("wfi");
+  if (READ_CSR(sip) & SIP_STIP) {
+    timer_service();
+  }
 }
 
 uint64_t timer_ticks(void) { return ticks; }

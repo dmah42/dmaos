@@ -27,6 +27,7 @@
 #define MAX_SOCKETS 16
 #define MAX_RX_PACKETS 32
 #define NET_CONNECT_TIMEOUT_MS 10000
+#define NET_DNS_TIMEOUT_MS 5000
 
 struct sockaddr_in {
   uint16_t sin_family;
@@ -155,6 +156,7 @@ void tcp_err_callback(void *arg, err_t err) {
   s->pcb.tcp = NULL;
   s->state = SOCK_CLOSED;
   s->last_err = err;
+  wakeup(s); // sys_connect()
 }
 
 err_t tcp_connected_callback(void *arg, _unused struct tcp_pcb *pcb,
@@ -162,6 +164,7 @@ err_t tcp_connected_callback(void *arg, _unused struct tcp_pcb *pcb,
   struct socket *s = (struct socket *)arg;
   if (s && s->in_use) {
     s->state = SOCK_CONNECTED;
+    wakeup(s); // sys_connect()
   }
   return ERR_OK;
 }
@@ -387,11 +390,14 @@ int sys_connect(int fd, const void *addr, uint32_t addrlen) {
     if (s->state != SOCK_CONNECTING) {
       break;
     }
-    if (uptime_ms() - start_ms > NET_CONNECT_TIMEOUT_MS) {
+    uint32_t elapsed_ms = uptime_ms() - start_ms;
+    if (elapsed_ms > NET_CONNECT_TIMEOUT_MS) {
       tcp_abort(s->pcb.tcp); // fires tcp_err_callback, which clears the PCB
       return ERR_TIMED_OUT;
     }
-    yield();
+    // tcp_connected_callback or tcp_err_callback wakes us from net_poll() on
+    // the timer tick.
+    sleep_on(s, NET_CONNECT_TIMEOUT_MS - elapsed_ms + 1);
   }
 
   // A peer may connect and send FIN within one poll; the PCB survives that
@@ -759,6 +765,7 @@ void dns_found_cb(_unused const char *name, const ip_addr_t *ipaddr,
     state->err = ERR_VAL;
   }
   state->done = true;
+  wakeup(state); // sys_dns_lookup()
 }
 
 int sys_dns_lookup(const char *name, uint32_t *ip_out) {
@@ -787,10 +794,12 @@ int sys_dns_lookup(const char *name, uint32_t *ip_out) {
     if (state.done) {
       break;
     }
-    if (uptime_ms() - start_ms > 5000) {
+    uint32_t elapsed_ms = uptime_ms() - start_ms;
+    if (elapsed_ms > NET_DNS_TIMEOUT_MS) {
       return ERR_IO;
     }
-    yield();
+    // dns_found_cb wakes us from net_poll() on the timer tick.
+    sleep_on(&state, NET_DNS_TIMEOUT_MS - elapsed_ms + 1);
   }
 
   if (state.err == ERR_OK) {

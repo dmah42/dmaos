@@ -4,6 +4,7 @@
 #include "kernel.h"
 #include "net.h"
 #include "pipe.h"
+#include "process.h"
 #include "string.h"
 
 struct File file_table[GLOBAL_OPEN_FILE_LIMIT];
@@ -72,6 +73,7 @@ void file_close(struct File *f) {
         p->write_closed = true;
       }
       --p->ref;
+      wakeup(p); // EOF for a blocked reader, EPIPE for a blocked writer
       f->pipe = NULL;
     }
     f->type = FD_NONE;

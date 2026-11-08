@@ -994,7 +994,14 @@ void kmain(void) {
                  (size_t)(_binary_shell_bin_end - _binary_shell_bin_start), 0,
                  NULL);
 
-  yield();
+  // The idle process: runs only when no user process is runnable.
+  for (;;) {
+    yield();
+    if (!process_any_alive()) {
+      break;
+    }
+    timer_idle_wait();
+  }
 
   kprintf("Powering off after %d timer ticks in %d ms\n",
           (int)timer_ticks(), (int)uptime_ms());

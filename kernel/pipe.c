@@ -5,8 +5,8 @@
  * read-end and write-end are represented as ordinary struct File entries with
  * FD_PIPE type; they share a pointer to the same struct Pipe.
  *
- * Blocking is implemented via cooperative yield-loops, consistent with the
- * rest of the kernel (see wait_process, fs_read for FD_CONSOLE).
+ * A blocked reader or writer sleeps on the struct Pipe. Each end wakes the
+ * other after moving data, and file_close() wakes both when an end closes.
  */
 
 #include "file.h"
@@ -72,7 +72,7 @@ void pipe_module_init(void) { pipe_pool_init(); }
 
 /*
  * Read up to n bytes from the pipe into buf.
- * Yield-loops until data is available or the write end has been closed.
+ * Blocks until data is available or the write end has been closed.
  * Returns number of bytes read, or 0 on EOF.
  */
 int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
@@ -80,7 +80,7 @@ int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
     if (p->write_closed) {
       return 0; /* EOF */
     }
-    yield();
+    sleep_on(p, 0);
   }
 
   int count = 0;
@@ -88,21 +88,23 @@ int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
     buf[count++] = p->buf[p->read_pos & (PIPE_BUF_SIZE - 1)];
     ++p->read_pos;
   }
+  wakeup(p); // a writer waiting for space
   return count;
 }
 
 // Write n bytes from buf into the pipe.
-// Yield-loops until there is space in the ring buffer.
+// Blocks until there is space in the ring buffer.
 // Returns n on success, or ERR_BROKEN_PIPE if no readers remain.
 int pipe_write(struct Pipe *p, const uint8_t *buf, int n) {
   int written = 0;
   while (written < n) {
-    /* Yield-loop while ring buffer is full. */
+    /* Block while ring buffer is full, letting the reader drain it. */
     while ((p->write_pos - p->read_pos) >= PIPE_BUF_SIZE) {
       if (p->ref <= 1) {
         return ERR_BROKEN_PIPE;
       }
-      yield();
+      wakeup(p);
+      sleep_on(p, 0);
     }
     // No readers left — only the writer holds a ref.
     if (p->ref <= 1) {
@@ -111,5 +113,6 @@ int pipe_write(struct Pipe *p, const uint8_t *buf, int n) {
     p->buf[p->write_pos & (PIPE_BUF_SIZE - 1)] = buf[written++];
     ++p->write_pos;
   }
+  wakeup(p); // a reader waiting for data
   return written;
 }

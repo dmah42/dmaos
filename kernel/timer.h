@@ -14,5 +14,10 @@ void timer_init(void);
 // handle_trap() for a trap taken in U-mode.
 void timer_tick(void);
 
+// Idles the hart until the next tick, then runs the same periodic kernel work
+// as timer_tick() without switching processes. Called by the idle process when
+// nothing is runnable.
+void timer_idle_wait(void);
+
 // Number of timer interrupts handled since boot.
 uint64_t timer_ticks(void);

@@ -322,16 +322,17 @@ int _read(int fd, void *buf, size_t count) {
       }
       return num_read;
     } else {
+      // A console read blocks in the kernel until a character arrives, so the
+      // process isn't scheduled while it waits.
       while (num_read < (size_t)vmin && num_read < count) {
-        int ch = syscall1(SYSCALL_GETCHAR, 0);
-        if (ch >= 0) {
-          if (is_canon && ch == 4 /* Ctrl+D */) {
-            break;
-          }
-          cbuf[num_read++] = (char)ch;
-        } else {
-          syscall1(SYSCALL_YIELD, 0);
+        char ch;
+        if (syscall3(SYSCALL_READ, fd, (uintptr_t)&ch, 1) != 1) {
+          break;
         }
+        if (is_canon && ch == 4 /* Ctrl+D */) {
+          break;
+        }
+        cbuf[num_read++] = ch;
       }
       return num_read;
     }

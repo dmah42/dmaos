@@ -116,21 +116,21 @@ Preemption makes spinning processes fair, but busy-wait loops still burn their w
 ### 4.1 New Process States
 Add `PROCSTATE_BLOCKED` with a wake condition stored in the process:
 - `wait_chan`: an opaque pointer naming what the process waits on (a pipe, a socket, a child process, the console).
-- `wake_tick`: an optional deadline in `ticks` for timed waits and `sleep_ms`.
+- `wake_time`: an optional `uptime()` deadline for timed waits, checked on every tick.
 
 Primitives (single hart, kernel non-preemptible, so no locks are needed):
-- `sleep_on(chan, timeout_ticks)`: mark the current process `BLOCKED` on `chan`, then `yield()`.
+- `sleep_on(chan, timeout_ms)`: mark the current process `BLOCKED` on `chan`, then `yield()`. A `NULL` `chan` sleeps for the timeout only.
 - `wakeup(chan)`: mark every process blocked on `chan` `RUNNABLE`.
-- The timer handler wakes processes whose `wake_tick` has passed.
+- The timer handler wakes processes whose `wake_time` has passed.
 
 ### 4.2 Converting the Busy Loops
 | Wait | Wakes on |
 |---|---|
 | `wait_process()` | `exit_current_process()` calling `wakeup(child)` |
 | Pipe read and write | the other end writing, reading or closing (`kernel/pipe.c`) |
-| Console read | input arriving. This needs input to be gathered somewhere other than the reader's loop: the timer handler polls the input devices into a kernel ring buffer (§5.1) and calls `wakeup(&console)`. |
+| Console read | a one-tick timeout: the reader sleeps for `SCHED_TICK_MS` and polls again. Input is polled, not interrupt driven, so nothing could wake it (see §5.1 for why the tick doesn't gather input yet). The user library's blocking TTY read (`VMIN > 0`) now uses `SYSCALL_READ`, which reaches this path, instead of spinning on `SYSCALL_GETCHAR`. |
 | Socket connect (kernel-internal wait) | lwIP callbacks (`tcp_recv_callback`, `tcp_accept_callback`, `tcp_connected_callback`, `tcp_err_callback`) calling `wakeup(socket)`. These run inside `net_poll()`, which the timer handler now calls every tick. |
-| `sleep_ms` | `wake_tick` |
+| `sleep_ms` | `wake_time`, once a sleep syscall exists (§6, Phase 2 step 4) |
 
 The socket `read()` contract (`ENOENT` when no data is available) is part of today's user ABI, and `user/lua/socket.c` and `wget` retry on it. **Socket reads and `accept` stay non-blocking**, so that contract is unchanged. Only waits that are already internal to the kernel (`connect`, DNS lookup) are converted to `sleep_on()`.
 
@@ -147,7 +147,9 @@ for (;;) {
 }
 ```
 
-`wfi` resumes when an interrupt is pending and enabled in `sie`, even though `sstatus.SIE = 0`. So the idle loop never takes a trap in S-mode, and the U-mode-only invariant of §3.1 holds. After waking, idle runs the same tick work as the trap path (deadline, wake timed sleepers, `net_poll()`, input polling) before `yield()`ing.
+`wfi` resumes when an interrupt is pending and enabled in `sie`, even though `sstatus.SIE = 0`. So the idle loop never takes a trap in S-mode, and the U-mode-only invariant of §3.1 holds. After waking, idle runs the same tick work as the trap path (deadline, wake timed sleepers, `net_poll()`) before `yield()`ing.
+
+Deadlines are scheduled one interval after the previous deadline rather than one interval from now, so wake-up latency doesn't make the tick drift; a deadline that has already passed is re-based on now.
 
 ---
 
@@ -157,6 +159,8 @@ This phase isn't designed in full here; it's listed to show what Phases 1 and 2 
 
 ### 5.1 Kernel Input Buffer
 Keyboard input is currently consumed only by whoever calls `getchar()`. To notice `Ctrl+C` while a process spins, the timer handler polls `input_getchar()` and the SBI console into a kernel ring buffer. Console reads then drain the buffer instead. The tick handler sees every byte as it arrives.
+
+The virtio keyboard has a single event queue shared by `input_getchar()` (console text) and `input_poll_event()` (raw key presses and releases, used by DOOM). A tick that drains the queue into a text buffer would steal raw events, so the buffer has to sit below both: queue raw events, and translate to text only for console readers.
 
 ### 5.2 Foreground Process and Delivery
 - The console tracks a **foreground process**, set by the shell when it starts a job.

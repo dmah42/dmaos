@@ -11,6 +11,7 @@
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
+#include "timer.h"
 
 #define NINODE (50)
 #define SECTORS_PER_BLOCK (2)
@@ -1033,8 +1034,10 @@ int fs_read(int fd, uint8_t *buf, int n) {
   if (f->type == FD_CONSOLE) {
     for (int i = 0; i < n; ++i) {
       long ch;
+      // Input devices are polled, not interrupt driven, so there is nothing
+      // to wake a reader: sleep for a tick and poll again.
       while ((ch = getchar()) < 0) {
-        yield();
+        sleep_on(NULL, SCHED_TICK_MS);
       }
       buf[i] = (uint8_t)ch;
     }

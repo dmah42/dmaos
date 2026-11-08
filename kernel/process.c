@@ -5,6 +5,7 @@
 #include "file.h"
 #include "fs.h"
 #include "k_fcntl.h"
+#include "k_time.h"
 #include "kernel.h"
 #include "page.h"
 #include "string.h"
@@ -178,6 +179,8 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
   // Initialize Process
   proc->pid = i + 1;
   proc->state = PROCSTATE_RUNNABLE;
+  proc->wait_chan = NULL;
+  proc->wake_time = 0;
   proc->page_table = page_table;
   proc->sp = (vaddr_t)sp;
   proc->heap_start = USER_BASE + align_up(size, PAGE_SIZE);
@@ -200,6 +203,7 @@ void exit_current_process(int exit_code) {
           current_proc->pid, exit_code);
   current_proc->state = PROCSTATE_EXITED;
   current_proc->exit_code = exit_code;
+  wakeup(current_proc); // a parent in wait_process()
 
   if (current_proc->cwd != NULL) {
     iput(current_proc->cwd);
@@ -428,7 +432,7 @@ int spawn_process(const char *cmdline, const struct FdRemap *remaps,
 
 /*
  * Waits for a process to finish execution.
- * Yields CPU slices until the target process transitions to PROCSTATE_EXITED.
+ * Blocks until the target process transitions to PROCSTATE_EXITED.
  * Returns 0 on success, or -1 if the PID does not exist.
  */
 int wait_process(int pid) {
@@ -458,8 +462,49 @@ int wait_process(int pid) {
       }
       return 0;
     }
-    yield();
+    sleep_on(proc, 0); // woken by exit_current_process()
   }
+}
+
+void sleep_on(const void *chan, uint32_t timeout_ms) {
+  current_proc->wait_chan = chan;
+  current_proc->wake_time =
+      timeout_ms > 0 ? uptime() + (uint64_t)timeout_ms * TICKS_PER_MS : 0;
+  current_proc->state = PROCSTATE_BLOCKED;
+  yield();
+  current_proc->wait_chan = NULL;
+  current_proc->wake_time = 0;
+}
+
+void wakeup(const void *chan) {
+  if (chan == NULL) {
+    return;
+  }
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (procs[i].state == PROCSTATE_BLOCKED && procs[i].wait_chan == chan) {
+      procs[i].state = PROCSTATE_RUNNABLE;
+    }
+  }
+}
+
+void wake_expired_sleepers(void) {
+  uint64_t now = uptime();
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (procs[i].state == PROCSTATE_BLOCKED && procs[i].wake_time != 0 &&
+        now >= procs[i].wake_time) {
+      procs[i].state = PROCSTATE_RUNNABLE;
+    }
+  }
+}
+
+bool process_any_alive(void) {
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (procs[i].pid > 0 && (procs[i].state == PROCSTATE_RUNNABLE ||
+                             procs[i].state == PROCSTATE_BLOCKED)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 struct Process *get_current_process(void) { return current_proc; }
