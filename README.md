@@ -73,6 +73,7 @@ oh, and it runs DOOM.
   - `hello` - simple greeting program.
   - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
   - `nslookup` - DNS query utility resolving domain hostnames to IPv4 addresses.
+  - `wget` - HTTP/1.0 file downloader (`wget [-O <file>] [-q] http://host[:port]/path`) following redirects; saves to the current directory (writable only under `/home`) or to `stdout` with `-O -`.
   - `doom` - classic DOOM (shareware episode 1) via `doomgeneric`.
   - `lua` - standalone Lua 5.4 scripting interpreter and interactive REPL (`/bin/lua`).
     - *Features*: Full core language and standard libraries (`math`, `string`, `table`, `io`, `os`, `coroutine`, `utf8`, `debug`).
@@ -183,10 +184,13 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
+- [ ] **Loopback Networking (`localhost`)**:
+  - Enable the lwIP loopback interface (`LWIP_NETIF_LOOPBACK`, polled from `net_poll`) so `127.0.0.1` is delivered locally instead of failing with no route.
+  - Resolve `localhost` to `127.0.0.1` locally (lwIP `DNS_LOCAL_HOSTLIST`) rather than querying the upstream DNS server.
+  - Depends on running multiple processes concurrently (preemptive multitasking / multi-TTY), so a local server and client (e.g. `httpd.lua` and `wget`) can run side by side.
 - [ ] **Network Utilities**:
   - `ping` - ICMP Echo Request/Reply utility to check host reachability.
   - `traceroute` - TTL-incrementing path analyzer.
   - `telnet` - clear-text interactive remote terminal client.
-  - `wget` - retrieve files over HTTP directly to the persistent `/home` drive.
   - `netstat` - track and display active network interface statistics.
 

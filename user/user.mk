@@ -3,7 +3,7 @@
 #
 
 # User programs, assets, and configs to stage
-uprogs := cat doom gfxtest hello kilo less ls lua memtest mkdir nettest nslookup rm snake write
+uprogs := cat doom gfxtest hello kilo less ls lua memtest mkdir nettest nslookup rm snake wget write
 utxts := hello.txt lorem.txt meow.txt test.lua httpd.lua www/index.html www/style.css doom1.wad #doom2.wad doom3.wad
 uconfigs := dmash.cfg net.cfg
 
