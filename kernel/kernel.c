@@ -50,7 +50,13 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
 
 #define KMESG_SIZE 4096
 char kmesg_buf[KMESG_SIZE];
-int kmesg_len = 0;
+int kmesg_head = 0; // next write position
+int kmesg_len = 0;  // bytes held, up to KMESG_SIZE
+
+// Returns the i-th oldest byte held in the ring
+static char kmesg_at(int i) {
+  return kmesg_buf[(kmesg_head - kmesg_len + i + KMESG_SIZE) % KMESG_SIZE];
+}
 
 void dump_kmesg(int limit) {
   int start = 0;
@@ -58,7 +64,7 @@ void dump_kmesg(int limit) {
     start = kmesg_len - limit;
   }
   for (int i = start; i < kmesg_len; i++) {
-    sbi_call((long)kmesg_buf[i], 0, 0, 0, 0, 0, 0, 1 /* putchar */);
+    sbi_call((long)kmesg_at(i), 0, 0, 0, 0, 0, 0, 1 /* putchar */);
   }
 }
 
@@ -67,9 +73,10 @@ void putchar(const char ch) {
 }
 
 void kputc(char ch) {
-  if (kmesg_len < KMESG_SIZE - 1) {
-    kmesg_buf[kmesg_len++] = ch;
-    kmesg_buf[kmesg_len] = '\0';
+  kmesg_buf[kmesg_head] = ch;
+  kmesg_head = (kmesg_head + 1) % KMESG_SIZE;
+  if (kmesg_len < KMESG_SIZE) {
+    kmesg_len++;
   }
   sbi_call((long)ch, 0, 0, 0, 0, 0, 0, 1 /* putchar */);
 }
@@ -502,7 +509,11 @@ void handle_syscall(struct trap_frame *f) {
       if (limit > kmesg_len) {
         limit = kmesg_len;
       }
-      memcpy(user_buf, kmesg_buf, limit);
+      // Copy the most recent `limit` bytes, oldest first
+      int start = kmesg_len - limit;
+      for (int i = 0; i < limit; i++) {
+        user_buf[i] = kmesg_at(start + i);
+      }
       f->a0 = limit;
     }
     break;

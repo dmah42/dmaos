@@ -76,7 +76,9 @@ oh, and it runs DOOM.
   - `doom` - classic DOOM (shareware episode 1) via `doomgeneric`.
   - `lua` - standalone Lua 5.4 scripting interpreter and interactive REPL (`/bin/lua`).
     - *Features*: Full core language and standard libraries (`math`, `string`, `table`, `io`, `os`, `coroutine`, `utf8`, `debug`).
-    - *Constraints*: Statically compiled pure ANSI C runtime without dynamic library loading (`.so` / `dlopen`). External modules must be pure Lua scripts or statically compiled into the binary. Networking/sockets are not included in the standard Lua distribution.
+    - *Sockets*: Built-in `socket` module (`user/lua/socket.c`) providing TCP `bind`/`accept`, `connect`, `receive` (`*l`, `*a`, or a byte count), `send`, and `gettime`, modelled on a minimal subset of LuaSocket.
+    - *Sample Scripts*: `/test.lua`, and `/httpd.lua`, a minimal HTTP server on port 8080 (forwarded from the host by QEMU, so `curl 127.0.0.1:8080` works from the host).
+    - *Constraints*: Statically compiled pure ANSI C runtime without dynamic library loading (`.so` / `dlopen`). External modules must be pure Lua scripts or statically compiled into the binary. On 32-bit builds Lua uses 32-bit integers and floats (`LUA_32BITS`).
 
 ---
 
@@ -167,8 +169,6 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Future Roadmap (TODOs)
 
-- [ ] **Terminal Pager (`less` / `more`)**:
-  - Implement a paginated screen viewer utility to view long file contents and command output on the framebuffer console.
 - [ ] **Framebuffer Console Scrollback History**:
   - Add an in-memory scrollback ring buffer with keyboard shortcuts (e.g. `Shift + PageUp` / `Shift + PageDown`) to inspect previous terminal output.
 
