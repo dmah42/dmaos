@@ -2,6 +2,7 @@
 #include "fd_remap.h"
 #include "fs_shared.h"
 #include "user.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -288,7 +289,7 @@ static void builtin_cd(const char *args, int out_fd) {
   int ret = chdir(path);
   if (ret < 0) {
     char err_msg[256];
-    snprintf(err_msg, sizeof(err_msg), "cd: %s: %s\n", path, strerror(ret));
+    snprintf(err_msg, sizeof(err_msg), "cd: %s: %s\n", path, strerror(errno));
     write(out_fd, err_msg, strlen(err_msg));
   }
 }
