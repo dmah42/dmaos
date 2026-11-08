@@ -14,7 +14,7 @@ oh, and it runs DOOM.
   - 64-bit RISC-V: `riscv64-unknown-elf` (`rv64imac`, `lp64`).
 - **Memory Mapping**: Universal multi-level paging system supporting **SV32** (2-level) on RV32 and **SV39** (3-level) on RV64 with dynamic user memory mapping and isolated page tables.
 - **Multitasking**: Cooperative scheduler with context switching, process spawning, and parent-child execution waiting.
-- **System Calls**: Parameter-specific assembly syscall routines routing user space traps (`ecall`) to kernel handlers. Returns self-documenting negative error codes (`enum Errno` from `errno.h`) translated via `strerror` in user space.
+- **System Calls**: Parameter-specific assembly syscall routines routing user space traps (`ecall`) to kernel handlers. Returns self-documenting negative error codes (`enum Errno` from `shared/k_errno.h`) using Linux errno numbering, translated by the user library to Newlib `errno` values for `strerror`.
 - **Dynamic Memory Allocation**: Standard heap allocator (`malloc`, `free`, `calloc`, `realloc`) backed by the `sbrk` system call which dynamically maps physical pages into the user address space.
 
 ### 2. Block Drivers & Mounting
@@ -35,7 +35,7 @@ oh, and it runs DOOM.
 ### 4. Networking & BSD Sockets (lwIP)
 - **VirtIO MMIO Network Device**: VirtIO network adapter driver operating on MMIO bus 3 with ring buffer transmit/receive queues.
 - **lwIP TCP/IP Stack**: Full IPv4 network stack integrated in kernel space (`NO_SYS 1`) with Ethernet frame processing, dynamic ARP resolution, ICMP, UDP, and TCP.
-- **BSD Socket Subsystem**: In-kernel socket abstraction and POSIX system calls (`socket`, `bind`, `listen`, `accept`, `connect`, `sendto`, `recvfrom`).
+- **BSD Socket Subsystem**: In-kernel socket abstraction and POSIX system calls (`socket`, `bind`, `listen`, `accept`, `connect`, `sendto`, `recvfrom`). TCP `connect` blocks with a 10 s timeout and reports `ECONNREFUSED` / `ETIMEDOUT`.
 - **Unified VFS File Descriptors**: Network sockets are first-class file descriptors (`FD_SOCKET`) fully integrated with `read()`, `write()`, and `close()`.
 - **POSIX Userland Headers**: Standard networking headers provided in user space: `<sys/socket.h>`, `<netinet/in.h>`, and `<arpa/inet.h>`.
 
@@ -58,7 +58,7 @@ oh, and it runs DOOM.
 - **Packaging & Deployment**: Automated image generation script (`tools/vf2/create_sdcard.sh`) preparing raw bootable GPT/MBR SD cards with SPL, U-Boot, and dmaOS partitions.
 
 ### 7. Shell & Command Utilities
-- **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, path navigation, and command pipelines (`cmd1 | cmd2`).
+- **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, path navigation, command pipelines (`cmd1 | cmd2`), and built-ins (`cd`, `clear`, `exit`, `kmesg`).
 - **User Library**:
   - Powered by the Newlib user-space standard library with dedicated 32-bit and 64-bit multilib configurations.
 - **User Utilities**:
@@ -71,6 +71,8 @@ oh, and it runs DOOM.
   - `kilo` - externally developed interactive terminal text editor using ANSI escape sequences.
   - `snake` - classic snake game.
   - `hello` - simple greeting program.
+  - `gfxtest` - framebuffer test that renders frames to a user buffer and presents them via `framebuffer_present` (exercises scaling).
+  - `memtest` - heap allocator self-test covering `malloc`/`free`, heap expansion via `sbrk`, `calloc`, and `realloc`.
   - `nettest` - network diagnostic test utility (supports both UDP and TCP echo server modes on port 9999).
   - `nslookup` - DNS query utility resolving domain hostnames to IPv4 addresses.
   - `wget` - HTTP/1.0 file downloader (`wget [-O <file>] [-q] http://host[:port]/path`) following redirects; saves to the current directory (writable only under `/home`) or to `stdout` with `-O -`.
