@@ -623,7 +623,9 @@ void net_sock_close(struct socket *s) {
     } else {
       tcp_accept(s->pcb.tcp, NULL);
     }
-    tcp_close(s->pcb.tcp);
+    if (tcp_close(s->pcb.tcp) != ERR_OK) {
+      tcp_abort(s->pcb.tcp);
+    }
     s->pcb.tcp = NULL;
   }
 

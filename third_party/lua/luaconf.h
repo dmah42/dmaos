@@ -119,10 +119,11 @@
 #define LUA_FLOAT_DEFAULT	LUA_FLOAT_DOUBLE
 
 
-/*
-@@ LUA_32BITS enables Lua with 32-bit integers and 32-bit floats.
-*/
+#if defined(ARCH_RISCV32) || (defined(__riscv_xlen) && (__riscv_xlen == 32))
+#define LUA_32BITS	1
+#else
 #define LUA_32BITS	0
+#endif
 
 
 /*

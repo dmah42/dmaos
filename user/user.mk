@@ -46,10 +46,8 @@ $(BUILD_DIR)/user/bin/kilo.o: third_party/kilo/kilo.c
 	@mkdir -p $(dir $@)
 	$(cc) $(user_cflags) -Wno-char-subscripts -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
 
-# Lua 5.4 Interpreter
-$(BUILD_DIR)/user/bin/lua.o: third_party/lua/onelua.c
-	@mkdir -p $(dir $@)
-	$(cc) $(user_cflags) -Ithird_party/lua -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+# Lua 5.4 Interpreter Subsystem
+include $(USER_DIR)/lua/lua.mk
 
 # DOOM (doomgeneric)
 DOOM_DIR := third_party/doomgeneric/doomgeneric

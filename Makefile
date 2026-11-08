@@ -106,7 +106,7 @@ qflags := -machine virt -bios $(bios) -nographic \
           -device virtio-blk-device,drive=drive1,bus=virtio-mmio-bus.1 \
 					-device ramfb -display default \
 					-device virtio-keyboard-device,bus=virtio-mmio-bus.2 \
-					-netdev user,id=net0,hostfwd=udp::9999-:9999,hostfwd=tcp::9999-:9999 \
+					-netdev user,id=net0,hostfwd=udp::9999-:9999,hostfwd=tcp::9999-:9999,hostfwd=tcp::8080-:8080 \
 					-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3
 
 # Directories
