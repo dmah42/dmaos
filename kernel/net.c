@@ -26,6 +26,7 @@
 
 #define MAX_SOCKETS 16
 #define MAX_RX_PACKETS 32
+#define NET_CONNECT_TIMEOUT_MS 10000
 
 struct sockaddr_in {
   uint16_t sin_family;
@@ -145,6 +146,26 @@ err_t tcp_recv_callback(void *arg, _unused struct tcp_pcb *pcb, struct pbuf *p,
   return ERR_OK;
 }
 
+// lwIP has already freed the PCB when this fires (refused, reset or aborted)
+void tcp_err_callback(void *arg, err_t err) {
+  struct socket *s = (struct socket *)arg;
+  if (!s || !s->in_use) {
+    return;
+  }
+  s->pcb.tcp = NULL;
+  s->state = SOCK_CLOSED;
+  s->last_err = err;
+}
+
+err_t tcp_connected_callback(void *arg, _unused struct tcp_pcb *pcb,
+                             _unused err_t err) {
+  struct socket *s = (struct socket *)arg;
+  if (s && s->in_use) {
+    s->state = SOCK_CONNECTED;
+  }
+  return ERR_OK;
+}
+
 err_t tcp_accept_callback(void *arg, struct tcp_pcb *newpcb,
                           _unused err_t err) {
   struct socket *listen_sock = (struct socket *)arg;
@@ -161,6 +182,7 @@ err_t tcp_accept_callback(void *arg, struct tcp_pcb *newpcb,
   child->state = SOCK_CONNECTED;
   tcp_arg(newpcb, child);
   tcp_recv(newpcb, tcp_recv_callback);
+  tcp_err(newpcb, tcp_err_callback);
 
   listen_sock->accept_queue[listen_sock->accept_tail] = child;
   listen_sock->accept_tail = (listen_sock->accept_tail + 1) % 8;
@@ -241,6 +263,7 @@ int sys_socket(int domain, int type, _unused int protocol) {
     }
     tcp_arg(s->pcb.tcp, s);
     tcp_recv(s->pcb.tcp, tcp_recv_callback);
+    tcp_err(s->pcb.tcp, tcp_err_callback);
   }
 
   struct File *f = file_alloc();
@@ -302,6 +325,9 @@ int sys_bind(int fd, const void *addr, uint32_t addrlen) {
   if (s->type == SOCK_DGRAM) {
     err = udp_bind(s->pcb.udp, &ip, port);
   } else if (s->type == SOCK_STREAM) {
+    if (!s->pcb.tcp) {
+      return ERR_INVALID_ARGUMENT;
+    }
     err = tcp_bind(s->pcb.tcp, &ip, port);
   }
 
@@ -345,18 +371,34 @@ int sys_connect(int fd, const void *addr, uint32_t addrlen) {
   }
 
   // TCP connect (synchronous connect with timeout)
+  if (!s->pcb.tcp) {
+    return ERR_INVALID_ARGUMENT;
+  }
   s->state = SOCK_CONNECTING;
-  tcp_connect(s->pcb.tcp, &ip, port, NULL);
-
-  for (int i = 0; i < 50; ++i) {
-    net_poll();
-    if (s->pcb.tcp->state == ESTABLISHED) {
-      s->state = SOCK_CONNECTED;
-      return 0;
-    }
+  s->last_err = ERR_OK;
+  if (tcp_connect(s->pcb.tcp, &ip, port, tcp_connected_callback) != ERR_OK) {
+    s->state = SOCK_CLOSED;
+    return ERR_IO;
   }
 
-  return ERR_IO;
+  uint32_t start_ms = uptime_ms();
+  while (s->state == SOCK_CONNECTING) {
+    net_poll();
+    if (s->state != SOCK_CONNECTING) {
+      break;
+    }
+    if (uptime_ms() - start_ms > NET_CONNECT_TIMEOUT_MS) {
+      tcp_abort(s->pcb.tcp); // fires tcp_err_callback, which clears the PCB
+      return ERR_TIMED_OUT;
+    }
+    yield();
+  }
+
+  // A peer may connect and send FIN within one poll; the PCB survives that
+  if (s->state == SOCK_CONNECTED || (s->pcb.tcp && s->last_err == ERR_OK)) {
+    return 0;
+  }
+  return (s->last_err == ERR_RST) ? ERR_CONNECTION_REFUSED : ERR_IO;
 }
 
 int sys_listen(int fd, int backlog) {
@@ -374,6 +416,9 @@ int sys_listen(int fd, int backlog) {
     return ERR_INVALID_ARGUMENT;
   }
 
+  if (!s->pcb.tcp) {
+    return ERR_INVALID_ARGUMENT;
+  }
   struct tcp_pcb *listen_pcb =
       tcp_listen_with_backlog(s->pcb.tcp, backlog > 0 ? backlog : 4);
   if (!listen_pcb) {
@@ -487,6 +532,9 @@ int sys_sendto(int fd, const void *buf, uint32_t len, _unused int flags,
     net_poll();
     return (int)len;
   } else if (s->type == SOCK_STREAM) {
+    if (!s->pcb.tcp) {
+      return ERR_BROKEN_PIPE;
+    }
     err_t err = tcp_write(s->pcb.tcp, buf, (u16_t)len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
       return ERR_IO;
@@ -562,7 +610,7 @@ int net_sock_read(struct socket *s, void *buf, size_t count) {
   pbuf_copy_partial(rx->p, buf, to_copy, s->rx_offset);
   s->rx_offset += to_copy;
 
-  if (s->type == SOCK_STREAM) {
+  if (s->type == SOCK_STREAM && s->pcb.tcp) {
     tcp_recved(s->pcb.tcp, to_copy);
   }
 
@@ -584,6 +632,9 @@ int net_sock_write(struct socket *s, const void *buf, size_t count) {
   }
 
   if (s->type == SOCK_STREAM) {
+    if (!s->pcb.tcp) {
+      return ERR_BROKEN_PIPE;
+    }
     err_t err = tcp_write(s->pcb.tcp, buf, (u16_t)count, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
       return ERR_IO;

@@ -97,14 +97,21 @@ static intptr_t syscall6(int sysno, uintptr_t arg0, uintptr_t arg1,
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Convert negative kernel errors to positive POSIX error codes
+// Convert negative kernel errors (Linux numbering) to newlib errno values.
+// The two agree up to 34 and for ECONNREFUSED; the rest need mapping.
 static int translate_error(int err) {
   if (err >= 0)
     return err;
-  int val = -err;
-  if (val == 4)
-    return ENOMEM; // ERR_NO_MEMORY
-  return val;
+  switch (-err) {
+  case 38:
+    return ENOSYS;
+  case 39:
+    return ENOTEMPTY;
+  case 110:
+    return ETIMEDOUT;
+  default:
+    return -err;
+  }
 }
 
 static intptr_t handle_retval(intptr_t ret) {

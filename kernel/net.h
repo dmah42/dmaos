@@ -36,6 +36,8 @@ struct socket {
     struct tcp_pcb *tcp;
   } pcb;
 
+  err_t last_err; // error reported by lwIP when it freed the PCB
+
   struct rx_packet *rx_head;
   struct rx_packet *rx_tail;
   size_t rx_offset; // for stream reads in TCP
