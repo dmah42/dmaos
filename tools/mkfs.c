@@ -12,10 +12,19 @@
 #define SECTOR_SIZE 512
 #define DISK_SIZE_BLOCKS 8192 // 8 MB disks
 
-uint8_t disk[DISK_SIZE_BLOCKS * BSIZE];
-uint8_t free_bitmap[BSIZE]; // 1 block for bitmap is plenty (8192 bits)
+// Disk layout: boot block, superblock, inode blocks, one bitmap block, data.
+#define INODE_START 2
+#define INODE_BLOCKS ((int)((MAX_DIR_ENTRIES + IPB - 1) / IPB))
+#define BMAP_START (INODE_START + INODE_BLOCKS)
+#define DATA_START (BMAP_START + 1)
 
-uint32_t freeblock = 7; // Data blocks start at block 7
+_Static_assert(DISK_SIZE_BLOCKS <= BSIZE * 8,
+               "free bitmap must fit in a single block");
+
+uint8_t disk[DISK_SIZE_BLOCKS * BSIZE];
+uint8_t free_bitmap[BSIZE];
+
+uint32_t freeblock = DATA_START;
 uint32_t freeinode = 2; // Inode 1 is root directory, files start at inode 2
 
 void mark_allocated(uint32_t block) {
@@ -415,7 +424,7 @@ int main(int argc, char *argv[]) {
   memset(free_bitmap, 0, sizeof(free_bitmap));
 
   // Mark metadata blocks as allocated in bitmap
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < DATA_START; ++i) {
     mark_allocated(i);
   }
 
@@ -424,9 +433,9 @@ int main(int argc, char *argv[]) {
   sb.magic = XV6_FS_MAGIC;
   sb.size = DISK_SIZE_BLOCKS;
   sb.ninodes = MAX_DIR_ENTRIES;
-  sb.inodestart = 2;
-  sb.bmapstart = 6;
-  sb.nblocks = DISK_SIZE_BLOCKS - 7;
+  sb.inodestart = INODE_START;
+  sb.bmapstart = BMAP_START;
+  sb.nblocks = DISK_SIZE_BLOCKS - DATA_START;
 
   uint8_t sb_buf[BSIZE];
   memset(sb_buf, 0, BSIZE);
@@ -492,12 +501,12 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Write Inodes to Inode Blocks (Block 2..5)
+  // Write inodes to the inode blocks
   struct dinode block_inodes[IPB];
 
-  for (int block = 2; block <= 5; ++block) {
+  for (int block = INODE_START; block < BMAP_START; ++block) {
     memset(block_inodes, 0, sizeof(block_inodes));
-    int start_inum = (block - 2) * IPB;
+    int start_inum = (block - INODE_START) * IPB;
     for (size_t idx = 0; idx < IPB; ++idx) {
       int inum = start_inum + idx;
       if (inum >= 1 && inum < MAX_DIR_ENTRIES) {
@@ -507,8 +516,8 @@ int main(int argc, char *argv[]) {
     write_block(block, block_inodes);
   }
 
-  // Write bitmap block (Block 6)
-  write_block(6, free_bitmap);
+  // Write the free block bitmap
+  write_block(BMAP_START, free_bitmap);
 
   // Write the disk memory block array to file
   FILE *out = fopen(disk_img, "wb");
