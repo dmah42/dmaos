@@ -17,10 +17,15 @@
 #include "stdlib.h"
 #include "string.h"
 #include "syscall.h"
+#include "timer.h"
 
 #include <stdarg.h>
 
 #define SCAUSE_ECALL (8)
+#define SCAUSE_INTERRUPT ((reg_t)1 << (sizeof(reg_t) * 8 - 1))
+#define SCAUSE_S_TIMER (SCAUSE_INTERRUPT | 5)
+
+#define SIE_STIE (1 << 5)
 
 #define SSTATUS_SPIE (1 << 5)
 #define SSTATUS_SPP (1 << 8)
@@ -974,6 +979,14 @@ void kmain(void) {
   process_init();
   kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
 
+  // Interrupts are only ever taken in U-mode: sstatus.SIE stays clear while
+  // the kernel runs, so a tick that fires in S-mode stays pending until the
+  // next sret to user space.
+  kprintf("Initializing preemption timer\n");
+  timer_init();
+  WRITE_CSR(sie, SIE_STIE);
+  kprintf(RALIGN GREEN "[DONE]\n" DEFAULT);
+
   kprintf(BOLD YELLOW "Boot complete\n" DEFAULT);
 
   kprintf("Spawning shell process\n");
@@ -983,7 +996,8 @@ void kmain(void) {
 
   yield();
 
-  kprintf("Powering off\n");
+  kprintf("Powering off after %d timer ticks in %d ms\n",
+          (int)timer_ticks(), (int)uptime_ms());
   sbi_call(0, 0, 0, 0, 0, 0, 0, 8); // sbi_shutdown
 
   for (;;) {
@@ -1004,7 +1018,14 @@ void handle_trap(struct trap_frame *f) {
   reg_t user_pc = READ_CSR(sepc);
   reg_t sstatus = READ_CSR(sstatus);
 
-  if (scause == SCAUSE_ECALL) {
+  if (scause & SCAUSE_INTERRUPT) {
+    // Interrupts resume at the interrupted instruction, so sepc is unchanged.
+    if (scause == SCAUSE_S_TIMER) {
+      timer_tick();
+    } else {
+      kprintf("Ignoring unexpected interrupt: scause %x\n", scause);
+    }
+  } else if (scause == SCAUSE_ECALL) {
     handle_syscall(f);
     user_pc += 4;
   } else if ((sstatus & SSTATUS_SPP) == 0) {

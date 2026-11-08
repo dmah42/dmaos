@@ -55,6 +55,9 @@ struct trap_frame {
     __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                    \
   } while (0)
 
+struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
+                       long arg5, long fid, long eid);
+
 void dump_kmesg(int limit);
 void kprintf(const char *fmt, ...);
 
