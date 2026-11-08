@@ -18,6 +18,9 @@
 #define HEADER_BUF_SIZE 4096
 #define BODY_BUF_SIZE 1024
 #define READ_TIMEOUT_MS 10000
+// Sockets are non-blocking; wait this long before retrying. Each retry also
+// polls the network, so a short interval keeps downloads fast.
+#define SOCKET_RETRY_MS 1
 
 struct url {
   char host[128];
@@ -117,7 +120,7 @@ static bool send_all(int fd, const char *buf, size_t len) {
       continue;
     }
     if (n < 0 && (errno == ENOENT || errno == EAGAIN)) {
-      yield();
+      sleep_ms(SOCKET_RETRY_MS);
       continue;
     }
     return false;
@@ -141,7 +144,7 @@ static ssize_t recv_some(int fd, char *buf, size_t len) {
       errno = ETIMEDOUT;
       return -1;
     }
-    yield();
+    sleep_ms(SOCKET_RETRY_MS);
   }
 }
 

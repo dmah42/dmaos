@@ -43,17 +43,24 @@ int spawn_process(const char *cmdline, const struct FdRemap *remaps,
                   int remap_count);
 int wait_process(int pid);
 
-// Blocks the current process until wakeup(chan) is called or timeout_ms
-// elapses, whichever comes first. A NULL chan sleeps for the timeout only, and
-// a timeout of 0 waits for wakeup() only. Wakeups can be spurious, so callers
-// re-check their condition in a loop.
+// Blocks the current process until wakeup(chan) is called or uptime() reaches
+// deadline, whichever comes first. A NULL chan sleeps until the deadline only,
+// and a deadline of 0 waits for wakeup() only. Wakeups can be spurious, so
+// callers re-check their condition in a loop.
+void sleep_until(const void *chan, uint64_t deadline);
+
+// sleep_until() with a deadline timeout_ms from now (0: no timeout).
 void sleep_on(const void *chan, uint32_t timeout_ms);
 
 // Makes every process blocked on chan runnable.
 void wakeup(const void *chan);
 
-// Makes every process whose sleep_on() timeout has passed runnable.
-void wake_expired_sleepers(void);
+// Makes every process whose sleep deadline has passed runnable. Returns true if
+// any process was woken.
+bool wake_expired_sleepers(void);
+
+// Returns the earliest sleep deadline of any blocked process, or UINT64_MAX.
+uint64_t process_next_wake_time(void);
 
 // Returns true while any user process is runnable or blocked.
 bool process_any_alive(void);

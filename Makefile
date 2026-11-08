@@ -194,8 +194,23 @@ run: all
 # root disk with tests/disk added, and a scratch data disk. Pass
 # TESTS="core httpd doom" to run a subset.
 TEST_DIR := $(BUILD_DIR)/test
+TEST_BIN_DIR := $(BUILD_DIR)/tests/bin
 
-test: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/disk.img bin/mkfs
+# Test-only C programs in tests/bin, copied to /tests on the test root disk.
+test_progs := $(basename $(notdir $(wildcard tests/bin/*.c)))
+
+$(TEST_BIN_DIR)/%.o: tests/bin/%.c
+	@mkdir -p $(dir $@)
+	$(cc) $(user_cflags) -I$(USER_DIR)/lib -I$(SHARED_DIR) -MMD -MP -c -o $@ $<
+
+$(TEST_BIN_DIR)/%.elf: $(TEST_BIN_DIR)/%.o $(USER_LIB_OBJS) $(USER_DIR)/lib/user.ld $(NEWLIB_LIBS)
+	$(cc) $(cflags) $(user_ldflags) -Wl,-T$(USER_DIR)/lib/user.ld \
+	      -o $@ $(filter %.o, $^) -L$(NEWLIB_LIBDIR) -lc -lm -lgcc
+
+$(TEST_BIN_DIR)/%: $(TEST_BIN_DIR)/%.elf
+	$(objcopy) --set-section-flags .bss=alloc,contents -O binary $< $@
+
+test: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/disk.img bin/mkfs $(addprefix $(TEST_BIN_DIR)/, $(test_progs))
 ifeq ($(BOARD),visionfive2)
 	$(error make test only runs on BOARD=qemu)
 endif
@@ -203,6 +218,7 @@ endif
 	mkdir -p $(TEST_DIR)/root
 	cp -R $(BUILD_DIR)/root/. $(TEST_DIR)/root/
 	cp -R tests/disk/. $(TEST_DIR)/root/
+	cp $(addprefix $(TEST_BIN_DIR)/, $(test_progs)) $(TEST_DIR)/root/tests/
 	bin/mkfs $(TEST_DIR)/disk.img $(TEST_DIR)/root > /dev/null
 	bin/mkfs $(TEST_DIR)/data.img > /dev/null
 	python3 tests/run_tests.py --qemu $(qemu) --bios $(bios) \

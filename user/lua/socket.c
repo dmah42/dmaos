@@ -28,6 +28,9 @@
 #define LUA_RET_PAIR 2
 
 #define SOCKET_BUF_SIZE 1024
+// Sockets are non-blocking; wait this long before retrying. Each retry also
+// polls the network, so a short interval keeps transfers fast.
+#define SOCKET_RETRY_MS 1
 
 typedef struct {
   int fd;
@@ -100,7 +103,7 @@ static ssize_t socket_fill_buffer(l_socket_t *s, uint32_t timeout_ms) {
       errno = ETIMEDOUT;
       return -1;
     }
-    yield();
+    sleep_ms(SOCKET_RETRY_MS);
   }
   return -1;
 }
@@ -125,7 +128,7 @@ static int l_server_accept(lua_State *L) {
     if (errno != ENOENT && errno != EAGAIN && errno != EWOULDBLOCK) {
       return l_socket_error(L, strerror(errno));
     }
-    yield();
+    sleep_ms(SOCKET_RETRY_MS);
   }
 
   return l_socket_error(L, "server socket closed");
@@ -287,7 +290,7 @@ static int l_client_send(lua_State *L) {
     }
     if (sent < 0) {
       if (errno == ENOENT || errno == EAGAIN || errno == EWOULDBLOCK) {
-        yield();
+        sleep_ms(SOCKET_RETRY_MS);
         continue;
       }
       printf("[lua-socket] send(fd=%d): write error %d (%s)\n", cli->fd, errno,

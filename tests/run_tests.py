@@ -56,8 +56,8 @@ class DiskImage:
                        for a in addrs[:nblocks])
         return raw[:size]
 
-    def read(self, path):
-        """Returns the contents of the file at path, or None if missing."""
+    def _lookup(self, path):
+        """Returns the inode number of path, or None if missing."""
         inum = 1
         for name in [p for p in path.split("/") if p]:
             itype, _, _ = self._inode(inum)
@@ -72,7 +72,15 @@ class DiskImage:
                     break
             else:
                 return None
-        return self._contents(inum)
+        return inum
+
+    def exists(self, path):
+        return self._lookup(path) is not None
+
+    def read(self, path):
+        """Returns the contents of the file at path, or None if missing."""
+        inum = self._lookup(path)
+        return None if inum is None else self._contents(inum)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +208,12 @@ class Results:
 
 WGET_BODY = b"hello from the test host\n"
 
+# How late a sleep may end on average. QEMU on macOS delivers timer interrupts
+# about 1-1.5 ms late (its main loop waits with millisecond timeouts), so allow
+# for that. Sleeps that only woke on 10 ms scheduler ticks would average about
+# 5 ms late and fail.
+SLEEP_SLACK_US = 3000
+
 
 class WgetHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -213,8 +227,8 @@ class WgetHandler(http.server.BaseHTTPRequestHandler):
 
 
 def session_core(args, results):
-    """Preemption, blocking pipes, a TCP connect and power off."""
-    print("core: preemption, pipes, TCP connect, idle and power off")
+    """Preemption, blocking pipes, sleeps, a TCP connect and power off."""
+    print("core: preemption, pipes, sleeps, TCP connect, idle and power off")
     server = http.server.HTTPServer(("127.0.0.1", 0), WgetHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
@@ -231,6 +245,8 @@ def session_core(args, results):
             "20 KB through a 512-byte pipe completes",
             vm.run("lua /tests/gen.lua | lua /tests/sum.lua /home/pipe.out",
                    processes=2))
+        results.check("sleeptest completes",
+                      vm.run("/tests/sleeptest /home/sleep.out"))
         # QEMU's user network maps 10.0.2.2 to the host's loopback.
         results.check(
             "wget from the host completes",
@@ -262,6 +278,20 @@ def session_core(args, results):
     pipe = disk.read("/pipe.out")
     results.check("pipe: every byte arrived",
                   pipe == b"2000 22000 line  2000\n", repr(pipe))
+
+    # Sleeps must never end early, and must end close to their deadline rather
+    # than on the next 10 ms scheduler tick.
+    sleep = disk.read("/sleep.out")
+    if sleep is None:
+        results.check("sleep accuracy", False, "missing output")
+    else:
+        for line in sleep.decode().splitlines():
+            req, lo, avg, hi = (int(x) for x in line.split())
+            results.check(
+                f"sleep {req // 1000} ms: never early, average within "
+                f"{SLEEP_SLACK_US} us",
+                lo >= req and avg <= req + SLEEP_SLACK_US,
+                f"min {lo} us, avg {avg} us, max {hi} us")
 
     wget = disk.read("/wget.out")
     results.check("wget: body matches", wget == WGET_BODY, repr(wget))
@@ -308,7 +338,7 @@ def session_httpd(args, results):
 def session_doom(args, results):
     """DOOM keeps running under the timer."""
     print("doom: runs without crashing")
-    if DiskImage(args.disk).read("/doom1.wad") is None:
+    if not DiskImage(args.disk).exists("/doom1.wad"):
         print("  SKIP  no /doom1.wad on the root disk (see disk/*.wad)")
         return
     vm = VM(args, "doom")

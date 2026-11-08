@@ -10,6 +10,7 @@
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "k_stat.h"
+#include "k_time.h"
 #include "net.h"
 #include "page.h"
 #include "pipe.h"
@@ -26,6 +27,9 @@
 #define SCAUSE_S_TIMER (SCAUSE_INTERRUPT | 5)
 
 #define SIE_STIE (1 << 5)
+
+// Longest sleep SYSCALL_NANOSLEEP honours (about 100 years).
+#define NANOSLEEP_MAX_SEC (100ULL * 365 * 24 * 60 * 60)
 
 #define SSTATUS_SPIE (1 << 5)
 #define SSTATUS_SPP (1 << 8)
@@ -777,6 +781,29 @@ void handle_syscall(struct trap_frame *f) {
     }
     break;
   }
+  case SYSCALL_NANOSLEEP: {
+    // a0: seconds, a1: nanoseconds. The duration is rounded up to the timebase
+    // resolution so the sleep never ends early.
+    uint64_t sec = f->a0;
+    reg_t nsec = f->a1;
+    if (nsec >= 1000000000UL) {
+      f->a0 = ERR_INVALID_ARGUMENT;
+      break;
+    }
+    // Cap absurd requests so converting to timebase units can't overflow.
+    if (sec > NANOSLEEP_MAX_SEC) {
+      sec = NANOSLEEP_MAX_SEC;
+    }
+    uint64_t duration = (uint64_t)sec * TICKS_PER_SEC +
+                        ((uint64_t)nsec * TICKS_PER_SEC + 999999999ULL) /
+                            1000000000ULL;
+    uint64_t deadline = uptime() + duration;
+    while (uptime() < deadline) {
+      sleep_until(NULL, deadline);
+    }
+    f->a0 = 0;
+    break;
+  }
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
@@ -1028,7 +1055,7 @@ void handle_trap(struct trap_frame *f) {
   if (scause & SCAUSE_INTERRUPT) {
     // Interrupts resume at the interrupted instruction, so sepc is unchanged.
     if (scause == SCAUSE_S_TIMER) {
-      timer_tick();
+      timer_interrupt();
     } else {
       kprintf("Ignoring unexpected interrupt: scause %x\n", scause);
     }

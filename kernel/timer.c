@@ -39,19 +39,33 @@ static void sbi_set_timer(uint64_t deadline) {
   }
 }
 
-static uint64_t next_deadline = 0;
+// The one hardware timer is programmed for whichever comes first: the next
+// scheduler tick or the earliest sleep_until() deadline. Sleeps therefore end
+// at their own deadline, not on the next tick.
+static uint64_t next_tick = 0; // deadline of the next scheduler tick
+static uint64_t armed = 0;     // deadline currently programmed
 
-// Arms the timer one interval after the previous deadline, so handling latency
-// doesn't make the tick drift. If that deadline has already passed (a tick was
+// Schedules the next tick one interval after the previous one, so handling
+// latency doesn't make the tick drift. If that has already passed (a tick was
 // delayed by a long kernel operation), the next one is measured from now
-// instead, so there is no burst of catch-up interrupts.
-static void timer_arm(void) {
-  uint64_t now = uptime();
-  next_deadline += TICK_INTERVAL;
-  if (next_deadline <= now) {
-    next_deadline = now + TICK_INTERVAL;
+// instead, so there is no burst of catch-up ticks.
+static void advance_tick(uint64_t now) {
+  next_tick += TICK_INTERVAL;
+  if (next_tick <= now) {
+    next_tick = now + TICK_INTERVAL;
   }
-  sbi_set_timer(next_deadline);
+}
+
+// Programs the timer for the earliest pending deadline. Setting a deadline
+// also clears a pending timer interrupt.
+static void timer_program(void) {
+  uint64_t deadline = next_tick;
+  uint64_t wake = process_next_wake_time();
+  if (wake < deadline) {
+    deadline = wake;
+  }
+  armed = deadline;
+  sbi_set_timer(deadline);
 }
 
 void timer_init(void) {
@@ -60,25 +74,44 @@ void timer_init(void) {
   use_time_ext = ret.error == 0 && ret.value != 0;
   kprintf("timer: %d ms tick via SBI %s\n", SCHED_TICK_MS,
           use_time_ext ? "TIME extension" : "legacy set_timer");
-  timer_arm();
+  advance_tick(uptime());
+  timer_program();
 }
 
-// Periodic kernel work, run once per tick. The kernel is never interrupted
+void timer_wake_at(uint64_t deadline) {
+  if (deadline < armed) {
+    armed = deadline;
+    sbi_set_timer(deadline);
+  }
+}
+
+// Handles an expired timer deadline. The kernel is never interrupted
 // (interrupts are only taken in U-mode), so non-reentrant subsystems are safe
-// to call here.
-static void timer_service(void) {
-  timer_arm();
-  ticks++;
-  wake_expired_sleepers();
+// to call here. Returns true if the running process should give up the CPU:
+// its time slice is over, or a sleeper woke and should run now.
+static bool timer_service(void) {
+  uint64_t now = uptime();
+  bool reschedule = wake_expired_sleepers();
 
-  // Polling the network every tick keeps lwIP's timers running when no process
-  // is using a socket, and runs the lwIP callbacks that wake blocked sockets.
-  net_poll();
+  if (now >= next_tick) {
+    advance_tick(now);
+    ticks++;
+    reschedule = true;
+
+    // Polling the network every tick keeps lwIP's timers running when no
+    // process is using a socket, and runs the lwIP callbacks that wake blocked
+    // sockets.
+    net_poll();
+  }
+
+  timer_program();
+  return reschedule;
 }
 
-void timer_tick(void) {
-  timer_service();
-  yield();
+void timer_interrupt(void) {
+  if (timer_service()) {
+    yield();
+  }
 }
 
 void timer_idle_wait(void) {

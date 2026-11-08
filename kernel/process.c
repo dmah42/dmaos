@@ -9,6 +9,7 @@
 #include "kernel.h"
 #include "page.h"
 #include "string.h"
+#include "timer.h"
 #include "virtio.h"
 
 struct Process procs[PROCS_MAX];
@@ -466,14 +467,25 @@ int wait_process(int pid) {
   }
 }
 
-void sleep_on(const void *chan, uint32_t timeout_ms) {
+void sleep_until(const void *chan, uint64_t deadline) {
+  if (deadline != 0 && uptime() >= deadline) {
+    return;
+  }
   current_proc->wait_chan = chan;
-  current_proc->wake_time =
-      timeout_ms > 0 ? uptime() + (uint64_t)timeout_ms * TICKS_PER_MS : 0;
+  current_proc->wake_time = deadline;
   current_proc->state = PROCSTATE_BLOCKED;
+  if (deadline != 0) {
+    timer_wake_at(deadline);
+  }
   yield();
   current_proc->wait_chan = NULL;
   current_proc->wake_time = 0;
+}
+
+void sleep_on(const void *chan, uint32_t timeout_ms) {
+  sleep_until(chan, timeout_ms > 0
+                        ? uptime() + (uint64_t)timeout_ms * TICKS_PER_MS
+                        : 0);
 }
 
 void wakeup(const void *chan) {
@@ -487,14 +499,28 @@ void wakeup(const void *chan) {
   }
 }
 
-void wake_expired_sleepers(void) {
+bool wake_expired_sleepers(void) {
   uint64_t now = uptime();
+  bool woke = false;
   for (int i = 0; i < PROCS_MAX; ++i) {
     if (procs[i].state == PROCSTATE_BLOCKED && procs[i].wake_time != 0 &&
         now >= procs[i].wake_time) {
       procs[i].state = PROCSTATE_RUNNABLE;
+      woke = true;
     }
   }
+  return woke;
+}
+
+uint64_t process_next_wake_time(void) {
+  uint64_t earliest = UINT64_MAX;
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (procs[i].state == PROCSTATE_BLOCKED && procs[i].wake_time != 0 &&
+        procs[i].wake_time < earliest) {
+      earliest = procs[i].wake_time;
+    }
+  }
+  return earliest;
 }
 
 bool process_any_alive(void) {

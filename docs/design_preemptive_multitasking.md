@@ -130,7 +130,7 @@ Primitives (single hart, kernel non-preemptible, so no locks are needed):
 | Pipe read and write | the other end writing, reading or closing (`kernel/pipe.c`) |
 | Console read | a one-tick timeout: the reader sleeps for `SCHED_TICK_MS` and polls again. Input is polled, not interrupt driven, so nothing could wake it (see §5.1 for why the tick doesn't gather input yet). The user library's blocking TTY read (`VMIN > 0`) now uses `SYSCALL_READ`, which reaches this path, instead of spinning on `SYSCALL_GETCHAR`. |
 | Socket connect (kernel-internal wait) | lwIP callbacks (`tcp_recv_callback`, `tcp_accept_callback`, `tcp_connected_callback`, `tcp_err_callback`) calling `wakeup(socket)`. These run inside `net_poll()`, which the timer handler now calls every tick. |
-| `sleep_ms` | `wake_time`, once a sleep syscall exists (§6, Phase 2 step 4) |
+| `sleep_ms` | `wake_time`, via `SYSCALL_NANOSLEEP` (§4.4) |
 
 The socket `read()` contract (`ENOENT` when no data is available) is part of today's user ABI, and `user/lua/socket.c` and `wget` retry on it. **Socket reads and `accept` stay non-blocking**, so that contract is unchanged. Only waits that are already internal to the kernel (`connect`, DNS lookup) are converted to `sleep_on()`.
 
@@ -150,6 +150,17 @@ for (;;) {
 `wfi` resumes when an interrupt is pending and enabled in `sie`, even though `sstatus.SIE = 0`. So the idle loop never takes a trap in S-mode, and the U-mode-only invariant of §3.1 holds. After waking, idle runs the same tick work as the trap path (deadline, wake timed sleepers, `net_poll()`) before `yield()`ing.
 
 Deadlines are scheduled one interval after the previous deadline rather than one interval from now, so wake-up latency doesn't make the tick drift; a deadline that has already passed is re-based on now.
+
+### 4.4 Sleeping and the Timer
+Sleeps aren't tied to the scheduler tick. The single hardware timer is programmed for whichever comes first: the next 10 ms tick or the earliest `wake_time` of any blocked process. The `time` CSR runs at 10 MHz on QEMU and 4 MHz on the VisionFive 2, so deadlines have 100 ns or 250 ns resolution.
+
+- `sleep_until(chan, deadline)` re-programs the timer if its deadline is earlier than the one armed.
+- On a timer interrupt, the kernel wakes every process whose deadline has passed, runs the tick work only if the tick is due, re-arms for the next deadline, and yields if the slice is over or a sleeper woke.
+- The idle loop's `wfi` wakes on the same timer, so a sleep ends at its deadline even when nothing else is running.
+
+A sleep is still late by the interrupt latency, and by any kernel work in progress when the deadline passes (interrupts are only taken in U-mode). If other processes are runnable, a woken sleeper also waits its turn in the round robin. QEMU on macOS delivers timer interrupts about 1-1.5 ms late, because its main loop waits with millisecond timeouts.
+
+`SYSCALL_NANOSLEEP(sec, nsec)` blocks for that long, rounded up to the timebase resolution so it never ends early. It returns `EINVAL` if `nsec` is a second or more. The user library's `sleep_ms()` uses it. There is no `nanosleep()` yet: newlib doesn't provide one and nothing needs it, but it can be a thin wrapper over the syscall when something does. The user library's timed console read (`VTIME`, used by `less`) and the non-blocking socket retry loops in `wget` and `user/lua/socket.c` sleep between polls instead of yielding.
 
 ---
 
@@ -182,7 +193,7 @@ The virtio keyboard has a single event queue shared by `input_getchar()` (consol
 1. `PROCSTATE_BLOCKED`, `wait_chan`, `wake_tick`, `sleep_on()` and `wakeup()`.
 2. Convert `wait_process()`, then pipes, then sockets, then console reads (after the input buffer).
 3. Idle `wfi` loop and the revised shutdown rule.
-4. Optional: a `sleep_ms` syscall, replacing the user-space `uptime()` and `yield()` spin in `user/lib/user.c`.
+4. `SYSCALL_NANOSLEEP` and a timer programmed for the earliest sleep deadline (§4.4), replacing the user-space `uptime()` and `yield()` spins.
 
 ### Phase 3: Signals
 1. Kernel input ring buffer filled from the tick.

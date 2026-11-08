@@ -32,6 +32,8 @@
 #define TCSETSF 0x5404
 #define TIOCGWINSZ 0x5413
 
+static const uint32_t CONSOLE_POLL_MS = 10;
+
 // Termios state for stdin (fd 0)
 static struct termios stdin_termios = {
     .c_lflag = ICANON | ECHO,
@@ -306,7 +308,8 @@ int _read(int fd, void *buf, size_t count) {
       return num_read;
     } else if (vmin == 0 && vtime > 0) {
       uint64_t start_time = uptime();
-      uint64_t timeout_ticks = (uint64_t)vtime * 1000000;
+      // VTIME is in tenths of a second.
+      uint64_t timeout_ticks = (uint64_t)vtime * TICKS_PER_SEC / 10;
       while (num_read < count) {
         int ch = syscall1(SYSCALL_GETCHAR, 0);
         if (ch >= 0) {
@@ -318,7 +321,8 @@ int _read(int fd, void *buf, size_t count) {
         }
         if (uptime() - start_time >= timeout_ticks)
           break;
-        syscall1(SYSCALL_YIELD, 0);
+        // Console input is polled; check again shortly.
+        sleep_ms(CONSOLE_POLL_MS);
       }
       return num_read;
     } else {
@@ -431,26 +435,6 @@ int _gettimeofday(struct timeval *tv, void *tz) {
   return 0;
 }
 
-int _nanosleep(const struct timespec *req, struct timespec *rem) {
-  if (!req) {
-    errno = EINVAL;
-    return -1;
-  }
-  uint64_t start_time = uptime();
-  uint64_t ticks = (uint64_t)req->tv_sec * TICKS_PER_SEC +
-                   (uint64_t)req->tv_nsec / (1000000000ULL / TICKS_PER_SEC);
-  while (1) {
-    if (uptime() - start_time >= ticks)
-      break;
-    syscall1(SYSCALL_YIELD, 0);
-  }
-  if (rem) {
-    rem->tv_sec = 0;
-    rem->tv_nsec = 0;
-  }
-  return 0;
-}
-
 clock_t _times(struct tms *buf) {
   clock_t clk = (clock_t)(uptime() / TICKS_PER_MS);
   if (buf) {
@@ -489,11 +473,7 @@ char *getcwd(char *buf, size_t size) {
 }
 
 void sleep_ms(uint32_t ms) {
-  uint64_t start = uptime();
-  uint64_t ticks = (uint64_t)ms * TICKS_PER_MS;
-  while (uptime() - start < ticks) {
-    yield();
-  }
+  syscall2(SYSCALL_NANOSLEEP, ms / 1000, (ms % 1000) * 1000000UL);
 }
 
 ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
