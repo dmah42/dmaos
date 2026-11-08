@@ -147,6 +147,14 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
   make ARCH=riscv64 BOARD=visionfive2 clean
   ```
 
+### Tests
+`make test` boots the system headless in QEMU and checks preemption, pipes, a TCP connection from the guest, serving HTTP to the host, DOOM (skipped without `doom1.wad`) and power off. It runs on a copy of the root disk with `tests/disk/` added and a scratch data disk, so your `data.img` is left alone. Serial logs are written to `build/<arch>/test/`.
+```bash
+make ARCH=riscv32 test
+make ARCH=riscv64 test
+make ARCH=riscv64 test TESTS="core httpd"   # a subset: core, httpd, doom
+```
+
 ---
 
 ## IDE Integration (Autocomplete & Diagnostics)

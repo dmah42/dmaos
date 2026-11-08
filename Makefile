@@ -115,7 +115,7 @@ USER_DIR := user
 SHARED_DIR := shared
 TOOLS_DIR := tools
 
-.PHONY: all clean run
+.PHONY: all clean run test
 .SECONDARY:
 
 all: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/disk.img data.img
@@ -187,6 +187,27 @@ $(BUILD_DIR)/root/%: disk/%
 
 run: all
 	$(qemu) $(qflags) -kernel $(BUILD_DIR)/kernel.elf
+
+# ----------------- Tests -----------------
+
+# Boots the system in QEMU and runs tests/run_tests.py against a copy of the
+# root disk with tests/disk added, and a scratch data disk. Pass
+# TESTS="core httpd doom" to run a subset.
+TEST_DIR := $(BUILD_DIR)/test
+
+test: $(BUILD_DIR)/kernel.elf $(BUILD_DIR)/disk.img bin/mkfs
+ifeq ($(BOARD),visionfive2)
+	$(error make test only runs on BOARD=qemu)
+endif
+	rm -rf $(TEST_DIR)
+	mkdir -p $(TEST_DIR)/root
+	cp -R $(BUILD_DIR)/root/. $(TEST_DIR)/root/
+	cp -R tests/disk/. $(TEST_DIR)/root/
+	bin/mkfs $(TEST_DIR)/disk.img $(TEST_DIR)/root > /dev/null
+	bin/mkfs $(TEST_DIR)/data.img > /dev/null
+	python3 tests/run_tests.py --qemu $(qemu) --bios $(bios) \
+	        --kernel $(BUILD_DIR)/kernel.elf --disk $(TEST_DIR)/disk.img \
+	        --data $(TEST_DIR)/data.img --workdir $(TEST_DIR) $(TESTS)
 
 clean:
 	rm -rf bin $(BUILD_DIR)
