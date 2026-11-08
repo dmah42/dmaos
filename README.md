@@ -77,7 +77,7 @@ oh, and it runs DOOM.
   - `lua` - standalone Lua 5.4 scripting interpreter and interactive REPL (`/bin/lua`).
     - *Features*: Full core language and standard libraries (`math`, `string`, `table`, `io`, `os`, `coroutine`, `utf8`, `debug`).
     - *Sockets*: Built-in `socket` module (`user/lua/socket.c`) providing TCP `bind`/`accept`, `connect`, `receive` (`*l`, `*a`, or a byte count), `send`, and `gettime`, modelled on a minimal subset of LuaSocket.
-    - *Sample Scripts*: `/test.lua`, and `/httpd.lua`, a minimal HTTP server on port 8080 (forwarded from the host by QEMU, so `curl 127.0.0.1:8080` works from the host).
+    - *Sample Scripts*: `/test.lua`, and `/httpd.lua`, a static file HTTP server on port 8080 serving `/www` by default (`lua /httpd.lua [root_dir] [port]`) (forwarded from the host by QEMU, so `curl 127.0.0.1:8080` works from the host).
     - *Constraints*: Statically compiled pure ANSI C runtime without dynamic library loading (`.so` / `dlopen`). External modules must be pure Lua scripts or statically compiled into the binary. On 32-bit builds Lua uses 32-bit integers and floats (`LUA_32BITS`).
 
 ---
