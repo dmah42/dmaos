@@ -218,8 +218,6 @@ void exit_current_process(int exit_code) {
 
   for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
     if (current_proc->ofile[fd] != NULL) {
-      kprintf(RED "process exit: PID %d leaked file descriptor %d!\n" DEFAULT,
-              current_proc->pid, fd);
       file_close(current_proc->ofile[fd]);
       current_proc->ofile[fd] = NULL;
     }

@@ -321,12 +321,23 @@ void handle_syscall(struct trap_frame *f) {
   case SYSCALL_YIELD:
     yield();
     break;
-  case SYSCALL_EXIT:
+  case SYSCALL_EXIT: {
+    // The user library closes its descriptors before exiting, so one still
+    // open here points at a bug. Processes ended by a signal or a crash skip
+    // that cleanup, so the check only applies to a voluntary exit.
+    struct Process *proc = get_current_process();
+    for (int fd = 0; fd < NUM_FILES_PER_PROCESS; ++fd) {
+      if (proc->ofile[fd] != NULL) {
+        kprintf(RED "process exit: PID %d leaked file descriptor %d!\n" DEFAULT,
+                proc->pid, fd);
+      }
+    }
     exit_current_process(f->a0);
     // TODO: unmap and deallocate pages.
     yield();
     PANIC("unreachable");
     break;
+  }
   case SYSCALL_OPEN: {
     const char *path = (const char *)f->a0;
     int flags = f->a1;
