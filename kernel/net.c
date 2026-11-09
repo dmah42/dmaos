@@ -225,6 +225,7 @@ void net_init(void) {
 
 void net_poll(void) {
   net_driver_poll(&dmaos_netif);
+  netif_poll_all();
   sys_check_timeouts();
 }
 
@@ -708,6 +709,29 @@ void net_sock_close(struct socket *s) {
 
 bool net_cfg_loaded = false;
 
+// From LOOPBACK= in /cfg/net.cfg; zero if unset.
+static ip_addr_t localhost_addr = IPADDR4_INIT(0);
+
+static bool parse_cfg_ip(const char *cfg, const char *key, ip_addr_t *out) {
+  const char *p = strstr(cfg, key);
+  if (!p) {
+    return false;
+  }
+  p += strlen(key);
+  while (*p == ' ' || *p == '\t') {
+    ++p;
+  }
+  char ip_str[32];
+  int len = 0;
+  while (p[len] && p[len] != '\r' && p[len] != '\n' && p[len] != ' ' &&
+         len < (int)sizeof(ip_str) - 1) {
+    ip_str[len] = p[len];
+    ++len;
+  }
+  ip_str[len] = '\0';
+  return ip4addr_aton(ip_str, out);
+}
+
 void net_load_config(void) {
   if (net_cfg_loaded) {
     return;
@@ -728,28 +752,13 @@ void net_load_config(void) {
     return;
   }
 
-  // Parse NAMESERVER=<ip>
-  char *ns = strstr((const char *)buf, "NAMESERVER=");
-  if (ns) {
-    ns += strlen("NAMESERVER=");
-    while (*ns == ' ' || *ns == '\t') {
-      ++ns;
-    }
-    char ip_str[32];
-    int len = 0;
-    while (ns[len] && ns[len] != '\r' && ns[len] != '\n' && ns[len] != ' ' &&
-           len < (int)sizeof(ip_str) - 1) {
-      ip_str[len] = ns[len];
-      ++len;
-    }
-    ip_str[len] = '\0';
-
-    ip_addr_t server_ip;
-    if (ip4addr_aton(ip_str, &server_ip)) {
-      dns_setserver(0, &server_ip);
-      kprintf("net: DNS nameserver set to %s from /cfg/net.cfg\n", ip_str);
-    }
+  ip_addr_t server_ip;
+  if (parse_cfg_ip((const char *)buf, "NAMESERVER=", &server_ip)) {
+    dns_setserver(0, &server_ip);
+    kprintf("net: DNS nameserver set to %s from /cfg/net.cfg\n",
+            ipaddr_ntoa(&server_ip));
   }
+  parse_cfg_ip((const char *)buf, "LOOPBACK=", &localhost_addr);
 }
 
 struct dns_query_state {
@@ -801,6 +810,11 @@ int sys_dns_lookup(const char *name, uint32_t *ip_out) {
   }
 
   net_load_config();
+
+  if (!ip_addr_isany(&localhost_addr) && lwip_stricmp(name, "localhost") == 0) {
+    *ip_out = ip_addr_get_ip4_u32(&localhost_addr);
+    return 0;
+  }
 
   struct dns_query_state *state = alloc_dns_query();
   if (state == NULL) {

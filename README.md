@@ -201,10 +201,9 @@ This generates a `compile_commands.json` database at the workspace root, which t
 - [ ] **Process Signals**:
   - Done: `SIGINT` and `SIGQUIT` from `Ctrl+C` and `Ctrl+\`, ending the foreground job.
   - Remaining: `SIGKILL`, a `kill` command, and user handlers (`signal()`, `sigaction`).
-- [ ] **Loopback Networking (`localhost`)**:
-  - Enable the lwIP loopback interface (`LWIP_NETIF_LOOPBACK`, polled from `net_poll`) so `127.0.0.1` is delivered locally instead of failing with no route.
-  - Resolve `localhost` to `127.0.0.1` locally (lwIP `DNS_LOCAL_HOSTLIST`) rather than querying the upstream DNS server.
-  - Depends on running multiple processes concurrently (preemptive multitasking / multi-TTY), so a local server and client (e.g. `httpd.lua` and `wget`) can run side by side.
+- [x] **Loopback Networking (`localhost`)**:
+  - The lwIP loopback interface (`LWIP_NETIF_LOOPBACK`, polled from `net_poll`) delivers `127.0.0.1` locally.
+  - `localhost` resolves to `LOOPBACK=` in `/cfg/net.cfg` without querying the DNS server.
 - [ ] **Network Utilities**:
   - `ping` - ICMP Echo Request/Reply utility to check host reachability.
   - `traceroute` - TTL-incrementing path analyzer.
