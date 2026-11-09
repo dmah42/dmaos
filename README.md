@@ -187,7 +187,7 @@ This generates a `compile_commands.json` database at the workspace root, which t
 
 ## Long-Term Architectural Goals
 
-- [ ] **Preemptive Multitasking**:
+- [x] **Preemptive Multitasking**:
   - Set up hardware timer interrupts using the RISC-V SBI timer interface.
   - Implement a preemptive scheduler to prevent infinite loops in user space from freezing the system.
 - [ ] **VisionFive 2 USB Keyboard**:
@@ -199,7 +199,8 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Move termios and line editing into the kernel per console, replacing the user library's copy and the interim `ISIG` syscall.
   - Job control: `Ctrl+Z` (`SIGTSTP`), a stopped process state, and `fg`, `bg` and `jobs` in the shell.
 - [ ] **Process Signals**:
-  - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
+  - Done: `SIGINT` and `SIGQUIT` from `Ctrl+C` and `Ctrl+\`, ending the foreground job.
+  - Remaining: `SIGKILL`, a `kill` command, and user handlers (`signal()`, `sigaction`).
 - [ ] **Loopback Networking (`localhost`)**:
   - Enable the lwIP loopback interface (`LWIP_NETIF_LOOPBACK`, polled from `net_poll`) so `127.0.0.1` is delivered locally instead of failing with no route.
   - Resolve `localhost` to `127.0.0.1` locally (lwIP `DNS_LOCAL_HOSTLIST`) rather than querying the upstream DNS server.
