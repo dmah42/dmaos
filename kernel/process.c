@@ -4,6 +4,8 @@
 #include "fd_remap.h"
 #include "file.h"
 #include "fs.h"
+#include "input.h"
+#include "k_errno.h"
 #include "k_fcntl.h"
 #include "k_time.h"
 #include "kernel.h"
@@ -179,9 +181,11 @@ struct Process *create_process(const void *image, size_t image_size, int argc,
 
   // Initialize Process
   proc->pid = i + 1;
+  proc->ppid = current_proc != NULL ? current_proc->pid : 0;
   proc->state = PROCSTATE_RUNNABLE;
   proc->wait_chan = NULL;
   proc->wake_time = 0;
+  proc->pending_signals = 0;
   proc->page_table = page_table;
   proc->sp = (vaddr_t)sp;
   proc->heap_start = USER_BASE + align_up(size, PAGE_SIZE);
@@ -205,6 +209,7 @@ void exit_current_process(int exit_code) {
   current_proc->state = PROCSTATE_EXITED;
   current_proc->exit_code = exit_code;
   wakeup(current_proc); // a parent in wait_process()
+  input_process_exited(current_proc->pid);
 
   if (current_proc->cwd != NULL) {
     iput(current_proc->cwd);
@@ -463,13 +468,20 @@ int wait_process(int pid) {
       }
       return 0;
     }
-    sleep_on(proc, 0); // woken by exit_current_process()
+    // Woken by exit_current_process()
+    int err = sleep_on(proc, 0);
+    if (err < 0) {
+      return err;
+    }
   }
 }
 
-void sleep_until(const void *chan, uint64_t deadline) {
+int sleep_until(const void *chan, uint64_t deadline) {
+  if (current_proc->pending_signals != 0) {
+    return ERR_INTERRUPTED;
+  }
   if (deadline != 0 && uptime() >= deadline) {
-    return;
+    return 0;
   }
   current_proc->wait_chan = chan;
   current_proc->wake_time = deadline;
@@ -480,12 +492,13 @@ void sleep_until(const void *chan, uint64_t deadline) {
   yield();
   current_proc->wait_chan = NULL;
   current_proc->wake_time = 0;
+  return current_proc->pending_signals != 0 ? ERR_INTERRUPTED : 0;
 }
 
-void sleep_on(const void *chan, uint32_t timeout_ms) {
-  sleep_until(chan, timeout_ms > 0
-                        ? uptime() + (uint64_t)timeout_ms * TICKS_PER_MS
-                        : 0);
+int sleep_on(const void *chan, uint32_t timeout_ms) {
+  return sleep_until(chan, timeout_ms > 0
+                               ? uptime() + (uint64_t)timeout_ms * TICKS_PER_MS
+                               : 0);
 }
 
 void wakeup(const void *chan) {
@@ -534,3 +547,68 @@ bool process_any_alive(void) {
 }
 
 struct Process *get_current_process(void) { return current_proc; }
+
+static bool is_alive(const struct Process *proc) {
+  return proc->pid > 0 && (proc->state == PROCSTATE_RUNNABLE ||
+                           proc->state == PROCSTATE_BLOCKED);
+}
+
+static struct Process *find_process(int pid) {
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (procs[i].state != PROCSTATE_UNUSED && procs[i].pid == pid) {
+      return &procs[i];
+    }
+  }
+  return NULL;
+}
+
+// Returns true if ancestor_pid is proc's parent, grandparent and so on.
+static bool is_descendant(const struct Process *proc, int ancestor_pid) {
+  // The depth bound guards against a cycle through a reused pid.
+  for (int depth = 0; depth < PROCS_MAX && proc != NULL; ++depth) {
+    if (proc->ppid == ancestor_pid) {
+      return true;
+    }
+    proc = find_process(proc->ppid);
+  }
+  return false;
+}
+
+bool signal_foreground(int sig) {
+  struct Process *shell = NULL;
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    if (is_alive(&procs[i]) && procs[i].ppid == 0) {
+      shell = &procs[i];
+      break;
+    }
+  }
+  if (shell == NULL) {
+    return false;
+  }
+
+  bool signalled = false;
+  for (int i = 0; i < PROCS_MAX; ++i) {
+    struct Process *proc = &procs[i];
+    if (proc != shell && is_alive(proc) && is_descendant(proc, shell->pid)) {
+      proc->pending_signals |= 1u << sig;
+      if (proc->state == PROCSTATE_BLOCKED) {
+        proc->state = PROCSTATE_RUNNABLE;
+      }
+      signalled = true;
+    }
+  }
+  return signalled;
+}
+
+void signal_deliver(void) {
+  uint32_t pending = current_proc->pending_signals;
+  if (pending == 0) {
+    return;
+  }
+  int sig = __builtin_ctz(pending);
+  kprintf("Process %d (%s) ended by signal %d\n", current_proc->pid,
+          current_proc->name, sig);
+  exit_current_process(128 + sig);
+  yield();
+  PANIC("unreachable");
+}

@@ -8,19 +8,25 @@
 
 #define PROCS_MAX (8) // maximum number of processes
 
+// Signals (Linux numbering)
+#define SIGINT 2
+#define SIGQUIT 3
+
 enum ProcState {
   PROCSTATE_UNUSED,
   PROCSTATE_RUNNABLE,
-  PROCSTATE_BLOCKED, // waiting in sleep_on(); not scheduled until woken
+  PROCSTATE_BLOCKED, // in sleep_until()
   PROCSTATE_EXITED
 };
 
 struct Process {
   int pid;
+  int ppid;
   enum ProcState state;
   int exit_code;
-  const void *wait_chan; // what a BLOCKED process waits on, or NULL
-  uint64_t wake_time;    // uptime() deadline for a BLOCKED process, or 0
+  const void *wait_chan;    // BLOCKED: what it waits on, or NULL
+  uint64_t wake_time;       // BLOCKED: uptime() deadline, or 0
+  uint32_t pending_signals; // bit n: signal n
   vaddr_t sp;
   pte_t *page_table;
   struct inode *cwd;
@@ -43,24 +49,27 @@ int spawn_process(const char *cmdline, const struct FdRemap *remaps,
                   int remap_count);
 int wait_process(int pid);
 
-// Blocks the current process until wakeup(chan) is called or uptime() reaches
-// deadline, whichever comes first. A NULL chan sleeps until the deadline only,
-// and a deadline of 0 waits for wakeup() only. Wakeups can be spurious, so
-// callers re-check their condition in a loop.
-void sleep_until(const void *chan, uint64_t deadline);
+// Sleeps until wakeup(chan) or until uptime() reaches deadline (NULL chan or
+// 0 deadline: no such wakeup). Wakeups can be spurious, so callers re-check in
+// a loop. Returns ERR_INTERRUPTED if a signal is pending; callers return it.
+int sleep_until(const void *chan, uint64_t deadline);
 
-// sleep_until() with a deadline timeout_ms from now (0: no timeout).
-void sleep_on(const void *chan, uint32_t timeout_ms);
+// sleep_until() with a deadline timeout_ms from now (0: none).
+int sleep_on(const void *chan, uint32_t timeout_ms);
 
-// Makes every process blocked on chan runnable.
 void wakeup(const void *chan);
 
-// Makes every process whose sleep deadline has passed runnable. Returns true if
-// any process was woken.
+// Returns true if any process was woken.
 bool wake_expired_sleepers(void);
 
-// Returns the earliest sleep deadline of any blocked process, or UINT64_MAX.
+// Returns UINT64_MAX if no process is sleeping with a deadline.
 uint64_t process_next_wake_time(void);
 
-// Returns true while any user process is runnable or blocked.
 bool process_any_alive(void);
+
+// Signals the descendants of the console's first process. Returns false if
+// there are none.
+bool signal_foreground(int sig);
+
+// Called on every return to U-mode.
+void signal_deliver(void);

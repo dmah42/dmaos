@@ -12,13 +12,16 @@ paths below. Uses only the Python standard library.
 
 import argparse
 import http.server
+import json
 import os
 import re
 import select
+import shutil
 import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -103,6 +106,10 @@ class VM:
         netdev = "user,id=net0"
         if hostfwd:
             netdev += "," + hostfwd
+        # QMP sends keys to the virtio keyboard. Unix socket paths are short,
+        # so it lives in a temporary directory rather than the workdir.
+        self.qmp_dir = tempfile.mkdtemp(prefix="dmaos")
+        qmp_path = os.path.join(self.qmp_dir, "qmp.sock")
         cmd = [
             args.qemu, "-machine", "virt", "-bios", args.bios,
             "-nographic", "-serial", "mon:stdio", "--no-reboot",
@@ -118,10 +125,62 @@ class VM:
             "-netdev", netdev,
             "-device", "virtio-net-device,netdev=net0,bus=virtio-mmio-bus.3",
             "-kernel", args.kernel,
+            "-qmp", f"unix:{qmp_path},server,wait=off",
         ]
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT)
+        self.qmp = None
+        end = time.time() + 10
+        while self.qmp is None and time.time() < end:
+            try:
+                sock = socket.socket(socket.AF_UNIX)
+                sock.connect(qmp_path)
+                self.qmp = sock.makefile("rw")
+            except OSError:
+                time.sleep(0.05)
+        if self.qmp is None:
+            raise RuntimeError("could not connect to QMP")
+        self.qmp.readline()  # greeting
+        self._qmp("qmp_capabilities")
+
+    def _qmp(self, command, **arguments):
+        msg = {"execute": command}
+        if arguments:
+            msg["arguments"] = arguments
+        self.qmp.write(json.dumps(msg) + "\n")
+        self.qmp.flush()
+        while True:
+            reply = json.loads(self.qmp.readline())
+            if "return" in reply or "error" in reply:
+                return reply
+
+    def send_key(self, *qcodes):
+        """Presses the keys together on the virtio keyboard, e.g. ctrl, c."""
+        keys = [{"type": "qcode", "data": k} for k in qcodes]
+        self._qmp("send-key", keys=keys)
+
+    def send(self, data):
+        """Writes raw bytes to the serial console."""
+        self.proc.stdin.write(data)
+        self.proc.stdin.flush()
+        self.pump(0.05)
+
+    def exits(self):
+        """Returns the exit codes logged so far, in order."""
+        return [int(code) for code in
+                re.findall(r"Process exited: PID=\d+ with exit code (-?\d+)",
+                           self.serial)]
+
+    def wait_exits(self, before, count, timeout):
+        """Waits for count exits after the first `before`; returns their
+        codes."""
+        end = time.time() + timeout
+        while len(self.exits()) < before + count and time.time() < end:
+            if self.proc.poll() is not None:
+                break
+            self.pump(0.1)
+        return self.exits()[before:]
 
     def pump(self, seconds):
         """Collects serial output for up to the given time."""
@@ -163,8 +222,8 @@ class VM:
         return self.wait_for(r"Process exited", timeout,
                              count=before + processes)
 
-    def type(self, command):
-        for ch in command + "\r":
+    def type(self, command, enter=True):
+        for ch in command + ("\r" if enter else ""):
             self.proc.stdin.write(ch.encode())
             self.proc.stdin.flush()
             self.pump(0.01)
@@ -176,11 +235,14 @@ class VM:
         return self.proc.poll() is not None
 
     def kill(self):
+        if self.qmp is not None:
+            self.qmp.close()
         if self.proc.poll() is None:
             self.proc.kill()
             self.proc.wait()
         self.pump(0)
         self.log.close()
+        shutil.rmtree(self.qmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -335,27 +397,124 @@ def session_httpd(args, results):
     results.no_panic(vm)
 
 
+SIGINT_EXIT = 128 + 2
+SIGQUIT_EXIT = 128 + 3
+
+
+def session_signals(args, results):
+    """Ctrl+C and Ctrl+\\ from the serial console and the keyboard."""
+    print("signals: Ctrl+C and Ctrl+\\")
+    vm = VM(args, "signals")
+    try:
+        vm.boot()
+
+        before = len(vm.exits())
+        vm.type("lua /tests/spin.lua 30 /home/spin1.out")
+        vm.pump(2.0)
+        vm.send(b"\x03")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("serial Ctrl+C ends a spinning process",
+                      codes == [SIGINT_EXIT], f"exit codes {codes}")
+
+        before = len(vm.exits())
+        vm.type("lua /tests/spin.lua 30 /home/spin2.out | "
+                "lua /tests/spin.lua 30 /home/spin3.out")
+        vm.pump(2.0)
+        vm.send(b"\x03")
+        codes = vm.wait_exits(before, 2, 5)
+        results.check("serial Ctrl+C ends every process in a pipeline",
+                      codes == [SIGINT_EXIT, SIGINT_EXIT],
+                      f"exit codes {codes}")
+
+        # sum.lua blocks reading the console, so this checks that a blocked
+        # process is woken and ended.
+        before = len(vm.exits())
+        vm.type("lua /tests/sum.lua /home/sum.out")
+        vm.pump(2.0)
+        vm.send(b"\x1c")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("serial Ctrl+\\ ends a process blocked reading input",
+                      codes == [SIGQUIT_EXIT], f"exit codes {codes}")
+
+        before = len(vm.exits())
+        vm.type("lua /tests/spin.lua 30 /home/spin4.out")
+        vm.pump(2.0)
+        vm.send_key("ctrl", "c")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("keyboard Ctrl+C ends a spinning process",
+                      codes == [SIGINT_EXIT], f"exit codes {codes}")
+
+        # rawkey turns ISIG off and exits without restoring it.
+        before = len(vm.exits())
+        vm.type("/tests/rawkey /home/rawkey.out")
+        vm.pump(2.0)
+        vm.send(b"\x03")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("with ISIG off, Ctrl+C is read as a character",
+                      codes == [0], f"exit codes {codes}")
+
+        before = len(vm.exits())
+        vm.type("lua /tests/spin.lua 30 /home/spin5.out")
+        vm.pump(2.0)
+        vm.send(b"\x03")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("ISIG is back on after the process that cleared it exits",
+                      codes == [SIGINT_EXIT], f"exit codes {codes}")
+
+        # With no job running, the shell gets Ctrl+C and discards the line.
+        vm.type("lua /tests/spin.lua 0 /home/discarded.out", enter=False)
+        vm.send(b"\x03")
+        results.check("shell survives Ctrl+C at the prompt",
+                      vm.run("lua /tests/spin.lua 0 /home/kept.out"))
+
+        vm.type("exit")
+        vm.wait_exit(15)
+    finally:
+        vm.kill()
+    results.no_panic(vm)
+
+    disk = DiskImage(args.data)
+    results.check("interrupted processes didn't finish",
+                  not any(disk.exists(f"/spin{i}.out") for i in range(1, 6)))
+    rawkey = disk.read("/rawkey.out")
+    results.check("rawkey read byte 3", rawkey == b"3\n", repr(rawkey))
+    results.check("shell discarded the line typed before Ctrl+C",
+                  not disk.exists("/discarded.out")
+                  and disk.exists("/kept.out"))
+
+
 def session_doom(args, results):
-    """DOOM keeps running under the timer."""
-    print("doom: runs without crashing")
+    """DOOM keeps running under the timer and owns the keyboard."""
+    print("doom: runs, owns the keyboard, serial Ctrl+C ends it")
     if not DiskImage(args.disk).exists("/doom1.wad"):
         print("  SKIP  no /doom1.wad on the root disk (see disk/*.wad)")
         return
     vm = VM(args, "doom")
     try:
         vm.boot()
-        before = vm.serial.count("Process exited")
+        before = len(vm.exits())
         vm.type("doom")
         vm.pump(10.0)
         results.check("doom still running after 10 s",
-                      vm.serial.count("Process exited") == before
-                      and vm.proc.poll() is None)
+                      len(vm.exits()) == before and vm.proc.poll() is None)
+
+        # DOOM reads raw key events, so keyboard Ctrl+C is just two keys.
+        vm.send_key("ctrl", "c")
+        vm.pump(2.0)
+        results.check("keyboard Ctrl+C doesn't end doom",
+                      len(vm.exits()) == before)
+
+        vm.send(b"\x03")
+        codes = vm.wait_exits(before, 1, 5)
+        results.check("serial Ctrl+C ends doom", codes == [SIGINT_EXIT],
+                      f"exit codes {codes}")
     finally:
         vm.kill()
     results.no_panic(vm)
 
 
-SESSIONS = {"core": session_core, "httpd": session_httpd, "doom": session_doom}
+SESSIONS = {"core": session_core, "signals": session_signals,
+            "httpd": session_httpd, "doom": session_doom}
 
 
 def main():

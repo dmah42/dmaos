@@ -397,7 +397,10 @@ int sys_connect(int fd, const void *addr, uint32_t addrlen) {
     }
     // tcp_connected_callback or tcp_err_callback wakes us from net_poll() on
     // the timer tick.
-    sleep_on(s, NET_CONNECT_TIMEOUT_MS - elapsed_ms + 1);
+    int err = sleep_on(s, NET_CONNECT_TIMEOUT_MS - elapsed_ms + 1);
+    if (err < 0) {
+      return err; // the socket is closed when the process ends
+    }
   }
 
   // A peer may connect and send FIN within one poll; the PCB survives that
@@ -799,7 +802,10 @@ int sys_dns_lookup(const char *name, uint32_t *ip_out) {
       return ERR_IO;
     }
     // dns_found_cb wakes us from net_poll() on the timer tick.
-    sleep_on(&state, NET_DNS_TIMEOUT_MS - elapsed_ms + 1);
+    int err = sleep_on(&state, NET_DNS_TIMEOUT_MS - elapsed_ms + 1);
+    if (err < 0) {
+      return err;
+    }
   }
 
   if (state.err == ERR_OK) {

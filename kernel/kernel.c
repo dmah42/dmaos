@@ -207,14 +207,7 @@ void kprintf(const char *fmt, ...) {
   va_end(vargs);
 }
 
-long getchar(void) {
-  int ch = input_getchar();
-  if (ch >= 0) {
-    return (long)ch;
-  }
-  struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
-  return ret.error;
-}
+long getchar(void) { return input_getchar(); }
 
 /*
  * Reads the active page table directory pointer from the satp Control Status
@@ -798,12 +791,21 @@ void handle_syscall(struct trap_frame *f) {
                         ((uint64_t)nsec * TICKS_PER_SEC + 999999999ULL) /
                             1000000000ULL;
     uint64_t deadline = uptime() + duration;
-    while (uptime() < deadline) {
-      sleep_until(NULL, deadline);
-    }
     f->a0 = 0;
+    while (uptime() < deadline) {
+      int err = sleep_until(NULL, deadline);
+      if (err < 0) {
+        f->a0 = err;
+        break;
+      }
+    }
     break;
   }
+  case SYSCALL_SET_ISIG:
+    // a0: whether Ctrl+C and Ctrl+\ signal (termios ISIG)
+    input_set_isig(f->a0 != 0);
+    f->a0 = 0;
+    break;
   default:
     PANIC("unexpected syscall %x\n", f->a3);
   }
@@ -971,6 +973,19 @@ __attribute__((naked)) __attribute__((aligned(4))) void kentry(void) {
 }
 #endif
 
+void kernel_tick(void) {
+  // The kernel is never interrupted (interrupts are only taken in U-mode), so
+  // non-reentrant subsystems are safe to call here.
+
+  // Keeps lwIP's timers running when no process is using a socket, and runs
+  // the lwIP callbacks that wake blocked sockets.
+  net_poll();
+
+  // Lets Ctrl+C reach a process that never reads input, and wakes console
+  // readers.
+  input_poll_devices();
+}
+
 void kmain(void) {
   // Clear BSS
   memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
@@ -1083,6 +1098,10 @@ void handle_trap(struct trap_frame *f) {
     PANIC("unexpected trap:\n  scause %x\n  stval %x\n  sepc %x\n", scause,
           stval, user_pc);
   }
+
+  // Every return to U-mode passes here, so pending signals are acted on
+  // promptly, even for a process that never makes a syscall.
+  signal_deliver();
 
   WRITE_CSR(sepc, user_pc);
 }

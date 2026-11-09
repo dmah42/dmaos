@@ -132,7 +132,7 @@ else
   BOARD_KOBJS := drivers/virtio.o drivers/ramfb.o
 endif
 
-kobjs := kernel.o blk.o fb.o fbcon.o font8x16.o file.o fs.o net.o page.o pipe.o process.o stdlib.o string.o timer.o $(BOARD_KOBJS)
+kobjs := kernel.o blk.o fb.o fbcon.o font8x16.o file.o fs.o net.o page.o pipe.o input.o process.o stdlib.o string.o timer.o $(BOARD_KOBJS)
 KERNEL_OBJS := $(addprefix $(BUILD_DIR)/kernel/, $(kobjs)) $(LWIP_OBJS) $(LWIP_PORT_OBJS)
 
 $(BUILD_DIR)/kernel/fonts/font8x16.bin: $(TOOLS_DIR)/generate_font.py
@@ -192,7 +192,7 @@ run: all
 
 # Boots the system in QEMU and runs tests/run_tests.py against a copy of the
 # root disk with tests/disk added, and a scratch data disk. Pass
-# TESTS="core httpd doom" to run a subset.
+# TESTS="core signals httpd doom" to run a subset.
 TEST_DIR := $(BUILD_DIR)/test
 TEST_BIN_DIR := $(BUILD_DIR)/tests/bin
 

@@ -148,11 +148,11 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
   ```
 
 ### Tests
-`make test` boots the system headless in QEMU and checks preemption, pipes, a TCP connection from the guest, serving HTTP to the host, DOOM (skipped without `doom1.wad`) and power off. It runs on a copy of the root disk with `tests/disk/` added and a scratch data disk, so your `data.img` is left alone. Serial logs are written to `build/<arch>/test/`.
+`make test` boots the system headless in QEMU and checks preemption, pipes, sleeps, `Ctrl+C`, a TCP connection from the guest, serving HTTP to the host, DOOM (skipped without `doom1.wad`) and power off. It runs on a copy of the root disk with `tests/disk/` added and a scratch data disk, so your `data.img` is left alone. Serial logs are written to `build/<arch>/test/`.
 ```bash
 make ARCH=riscv32 test
 make ARCH=riscv64 test
-make ARCH=riscv64 test TESTS="core httpd"   # a subset: core, httpd, doom
+make ARCH=riscv64 test TESTS="core httpd"   # a subset: core, signals, httpd, doom
 ```
 
 ---
@@ -192,6 +192,9 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Implement a preemptive scheduler to prevent infinite loops in user space from freezing the system.
 - [ ] **Virtual Console Multiplexing (Multi-TTY)**:
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
+  - Replace the interim `Ctrl+C` rule (signal every descendant of the console's first shell) with POSIX process groups and sessions: `setpgid`, a controlling terminal per console, and `tcsetpgrp` so each console's shell sets its own foreground job.
+  - Move termios and line editing into the kernel per console, replacing the user library's copy and the interim `ISIG` syscall.
+  - Job control: `Ctrl+Z` (`SIGTSTP`), a stopped process state, and `fg`, `bg` and `jobs` in the shell.
 - [ ] **Process Signals**:
   - Implement basic UNIX-like signals (e.g., `SIGINT`, `SIGKILL`) to support terminal execution interrupts (`Ctrl+C`).
 - [ ] **Loopback Networking (`localhost`)**:

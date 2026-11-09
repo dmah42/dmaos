@@ -75,6 +75,9 @@ void kprintf(const char *fmt, ...);
 void user_entry(void);
 __attribute__((noreturn)) void shutdown(void);
 
+// Periodic kernel work, run by the timer on every scheduler tick.
+void kernel_tick(void);
+
 // syscall implementations
 void putchar(const char ch);
 long getchar(void);

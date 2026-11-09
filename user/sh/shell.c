@@ -520,6 +520,11 @@ void read_line(char *buf, size_t max_len) {
       putchar('\n');
       buf[pos] = '\0';
       break;
+    } else if (ch == 0x03) {
+      // Ctrl+C with no job running: discard the line.
+      printf("^C\n");
+      buf[0] = '\0';
+      break;
     } else if (ch == '\b' || ch == 127) {
       if (pos > 0) {
         putchar('\b');

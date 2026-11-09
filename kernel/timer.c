@@ -2,7 +2,6 @@
 
 #include "k_time.h"
 #include "kernel.h"
-#include "net.h"
 #include "process.h"
 #include "stdlib.h"
 
@@ -85,10 +84,8 @@ void timer_wake_at(uint64_t deadline) {
   }
 }
 
-// Handles an expired timer deadline. The kernel is never interrupted
-// (interrupts are only taken in U-mode), so non-reentrant subsystems are safe
-// to call here. Returns true if the running process should give up the CPU:
-// its time slice is over, or a sleeper woke and should run now.
+// Handles an expired timer deadline. Returns true if the running process should
+// give up the CPU: its time slice is over, or a sleeper woke and should run now.
 static bool timer_service(void) {
   uint64_t now = uptime();
   bool reschedule = wake_expired_sleepers();
@@ -97,11 +94,7 @@ static bool timer_service(void) {
     advance_tick(now);
     ticks++;
     reschedule = true;
-
-    // Polling the network every tick keeps lwIP's timers running when no
-    // process is using a socket, and runs the lwIP callbacks that wake blocked
-    // sockets.
-    net_poll();
+    kernel_tick();
   }
 
   timer_program();

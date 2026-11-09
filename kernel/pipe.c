@@ -73,14 +73,17 @@ void pipe_module_init(void) { pipe_pool_init(); }
 /*
  * Read up to n bytes from the pipe into buf.
  * Blocks until data is available or the write end has been closed.
- * Returns number of bytes read, or 0 on EOF.
+ * Returns number of bytes read, 0 on EOF, or ERR_INTERRUPTED.
  */
 int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
   while (p->read_pos == p->write_pos) {
     if (p->write_closed) {
       return 0; /* EOF */
     }
-    sleep_on(p, 0);
+    int err = sleep_on(p, 0);
+    if (err < 0) {
+      return err;
+    }
   }
 
   int count = 0;
@@ -94,7 +97,8 @@ int pipe_read(struct Pipe *p, uint8_t *buf, int n) {
 
 // Write n bytes from buf into the pipe.
 // Blocks until there is space in the ring buffer.
-// Returns n on success, or ERR_BROKEN_PIPE if no readers remain.
+// Returns n on success, ERR_BROKEN_PIPE if no readers remain, or the bytes
+// written so far (ERR_INTERRUPTED if none) when a signal arrives.
 int pipe_write(struct Pipe *p, const uint8_t *buf, int n) {
   int written = 0;
   while (written < n) {
@@ -104,7 +108,10 @@ int pipe_write(struct Pipe *p, const uint8_t *buf, int n) {
         return ERR_BROKEN_PIPE;
       }
       wakeup(p);
-      sleep_on(p, 0);
+      int err = sleep_on(p, 0);
+      if (err < 0) {
+        return written > 0 ? written : err;
+      }
     }
     // No readers left — only the writer holds a ref.
     if (p->ref <= 1) {

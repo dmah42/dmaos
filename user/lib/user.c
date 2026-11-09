@@ -36,8 +36,8 @@ static const uint32_t CONSOLE_POLL_MS = 10;
 
 // Termios state for stdin (fd 0)
 static struct termios stdin_termios = {
-    .c_lflag = ICANON | ECHO,
-    .c_cc = {[VMIN] = 1, [VTIME] = 0},
+    .c_lflag = ICANON | ECHO | ISIG,
+    .c_cc = {[VINTR] = 0x03, [VQUIT] = 0x1c, [VMIN] = 1, [VTIME] = 0},
 };
 
 // Flags state for stdin (fd 0)
@@ -401,7 +401,13 @@ int _ioctl(int fd, unsigned long request, ...) {
       memcpy(arg, &stdin_termios, sizeof(struct termios));
       return 0;
     } else if (request == TCSETS || request == TCSETSW || request == TCSETSF) {
+      bool was_isig = (stdin_termios.c_lflag & ISIG) != 0;
       memcpy(&stdin_termios, arg, sizeof(struct termios));
+      bool isig = (stdin_termios.c_lflag & ISIG) != 0;
+      // The kernel turns Ctrl+C and Ctrl+\ into signals, so it needs to know.
+      if (isig != was_isig) {
+        syscall1(SYSCALL_SET_ISIG, isig);
+      }
       return 0;
     }
   }
@@ -480,21 +486,21 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
   return __getline(lineptr, n, stream);
 }
 
-// shims for third party binaries
 int tcgetattr(int fd, struct termios *termios_p) {
-  (void)fd;
-  if (!termios_p)
+  if (!termios_p) {
+    errno = EINVAL;
     return -1;
-  // Initialize to zero or sensible values so rawmode toggling behaves
-  memset(termios_p, 0, sizeof(struct termios));
-  return 0;
+  }
+  return _ioctl(fd, TCGETS, termios_p);
 }
 
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) {
-  (void)fd;
-  (void)optional_actions;
-  (void)termios_p;
-  return 0;
+  (void)optional_actions; // output is never queued, so all actions are TCSANOW
+  if (!termios_p) {
+    errno = EINVAL;
+    return -1;
+  }
+  return _ioctl(fd, TCSETS, (void *)termios_p);
 }
 
 int input_poll(uint16_t *code, int *pressed) {

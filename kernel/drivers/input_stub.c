@@ -1,13 +1,12 @@
-#include "input.h"
+#include "input_driver.h"
 
-void input_init(void) {}
+// Placeholder for boards without a keyboard driver yet: it reports no key
+// events, so console input comes only from serial.
 
-bool input_poll_event(uint16_t *code, int *pressed) {
+void input_driver_init(void) {}
+
+bool input_driver_poll_event(uint16_t *code, int *pressed) {
   (void)code;
   (void)pressed;
   return false;
-}
-
-int input_getchar(void) {
-  return -1;
 }

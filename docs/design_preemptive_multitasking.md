@@ -164,20 +164,42 @@ A sleep is still late by the interrupt latency, and by any kernel work in progre
 
 ---
 
-## 5. Phase 3: Foundations for Signals and `Ctrl+C`
+## 5. Phase 3: Signals and `Ctrl+C`
 
-This phase isn't designed in full here; it's listed to show what Phases 1 and 2 must leave room for.
+`Ctrl+C` (`SIGINT`) and `Ctrl+\` (`SIGQUIT`) end the foreground job. On Linux and classic Unix, the kernel's terminal driver does this: when the terminal's `ISIG` flag is set, it checks every input character against the interrupt and quit characters, signals the terminal's foreground process group, and drops the character. With `ISIG` clear (as in kilo, which uses `Ctrl+C` as an ordinary key so it can't lose unsaved edits), the character is passed through as data. Phase 3 follows that model as far as dmaOS can without kernel termios or process groups, both of which arrive with Multi-TTY.
 
 ### 5.1 Kernel Input Buffer
-Keyboard input is currently consumed only by whoever calls `getchar()`. To notice `Ctrl+C` while a process spins, the timer handler polls `input_getchar()` and the SBI console into a kernel ring buffer. Console reads then drain the buffer instead. The tick handler sees every byte as it arrives.
+The kernel has to see `Ctrl+C` while a process spins and nobody reads input. Reading keys only when someone asks doesn't work: the virtio keyboard queue holds 16 events (about four keystrokes), and once it fills the device drops later keys, including the `Ctrl+C`. So every tick drains the input devices into kernel buffers:
 
-The virtio keyboard has a single event queue shared by `input_getchar()` (console text) and `input_poll_event()` (raw key presses and releases, used by DOOM). A tick that drains the queue into a text buffer would steal raw events, so the buffer has to sit below both: queue raw events, and translate to text only for console readers.
+- **Keyboard:** raw events (key code, pressed or released) go into one kernel ring buffer. `input_poll_event()` (DOOM) reads raw events from it. Console reads translate events to text as they consume them; the scancode table and shift handling move from the virtio driver into a board-independent input layer (`kernel/input.c`, with each board's driver behind `kernel/input_driver.h`). The translation gains Ctrl: until now no keyboard key produced a control character, so `Ctrl+C`, kilo's `Ctrl+S` and the rest only worked from serial. Each event goes to whichever reader takes it first, as today, so nothing goes stale.
+- **Serial:** bytes from the SBI console go to the text side.
 
-### 5.2 Foreground Process and Delivery
-- The console tracks a **foreground process**, set by the shell when it starts a job.
-- On `0x03`, the kernel marks the foreground process's pending signal set (`SIGINT`).
-- Pending signals are checked on **every return to U-mode** (end of `handle_trap()`), which now happens at least every tick even for a spinning process. The default `SIGINT` action terminates the process with status `128 + 2`. User handlers (`signal()`/`sigaction`) are a later extension.
-- A blocked process with a pending signal is woken so the signal can be acted on.
+The virtio keyboard has a single event queue shared by text and raw readers, which is why the buffer holds raw events rather than text: a text-only buffer would steal DOOM's presses and releases.
+
+Console reads then block on the buffer and are woken when input arrives, instead of sleeping a tick and polling (§4.2).
+
+### 5.2 When a Key Signals
+While draining, the tick tracks whether Ctrl is held. `Ctrl+C` and `Ctrl+\` (or bytes `0x03` and `0x1c` from serial) signal only when:
+
+- **The console's `ISIG` flag is set.** termios lives in the user library, so the kernel learns `ISIG` through a new syscall, `SYSCALL_SET_ISIG(on)`, which the user library calls whenever `TCSETS` changes it. The user library's default termios gains `ISIG`, which it lacked: without it, a program that reads, modifies and writes termios (as `less` does) would switch signals off by accident. `tcgetattr()` and `tcsetattr()`, which kilo and `less` call, were stubs that ignored the settings; they now go through the same `TCGETS` and `TCSETS` handling as `ioctl()`. Unlike Linux, where `ISIG` stays as the last program left it, the kernel turns `ISIG` back on when the process that turned it off exits, so a raw-mode program that crashes doesn't leave `Ctrl+C` disabled.
+- **No process is reading raw keyboard events.** A live process that has called `input_poll()` owns the keyboard, as DOOM does on Linux by grabbing the input device (`EVIOCGRAB`): `Ctrl+C` on the keyboard reaches it as two ordinary key events. Serial `Ctrl+C` still signals, the equivalent of interrupting from another terminal. The kernel releases the keyboard when that process exits.
+
+Otherwise the key is delivered as a character.
+
+### 5.3 Foreground Job
+There are no process groups yet. Each process records its parent (kernel-internal), and a signalling key goes to **every descendant of the console's first process** (the login shell), but not the shell itself. A pipeline is covered automatically. If only the shell is running, it receives the character instead, so it can discard the line being typed.
+
+The limits are acceptable until Multi-TTY: there are no background jobs to protect, and a shell started from the shell is signalled along with its children.
+
+### 5.4 Delivery
+- Each process has a pending-signal set.
+- Pending signals are checked on **every return to U-mode** (end of `handle_trap()`), which happens at least every tick even for a spinning process. The default action for `SIGINT` and `SIGQUIT` ends the process with status `128 + signal` (130 and 131). User handlers (`signal()`, `sigaction`) are a later extension.
+- A blocked process with a pending signal is woken. The kernel's wait loops (`wait`, pipes, console read, TCP connect, DNS, `SYSCALL_NANOSLEEP`) check for a pending signal after waking and return `EINTR` instead of sleeping again, so the process reaches the U-mode return and is ended there.
+
+### 5.5 Deferred to Multi-TTY
+- Kernel termios and line editing per console.
+- POSIX process groups and sessions (`setpgid`, a controlling terminal, `tcsetpgrp`), replacing the descendants rule.
+- Job control: `Ctrl+Z` (`SIGTSTP`), a stopped process state, and `fg`, `bg` and `jobs` in the shell.
 
 ---
 
@@ -196,9 +218,11 @@ The virtio keyboard has a single event queue shared by `input_getchar()` (consol
 4. `SYSCALL_NANOSLEEP` and a timer programmed for the earliest sleep deadline (§4.4), replacing the user-space `uptime()` and `yield()` spins.
 
 ### Phase 3: Signals
-1. Kernel input ring buffer filled from the tick.
-2. Foreground process tracking and the shell integration.
-3. Pending-signal check on return to user; `SIGINT` default action.
+1. Board-independent input layer: raw event ring buffer filled from the tick, text translation on read, serial input; console reads block and are woken by input.
+2. Parent tracking, pending-signal sets and the check on return to U-mode; `EINTR` from the kernel's wait loops.
+3. `Ctrl+C` and `Ctrl+\` detection in the tick, with the `ISIG` and raw-keyboard rules and the descendants-of-the-shell target.
+4. `SYSCALL_SET_ISIG` and `ISIG` in the user library's default termios.
+5. `make test`: a spinning process and a pipeline ended by serial `Ctrl+C`; a raw-mode program receiving `0x03` as data.
 
 ### 6.1 Verification
 - **Fairness:** `lua -e "while true do end" | lua -e "for i = 1, 5 do print(i); local t = os.clock() + 1; while os.clock() < t do end end"`. Today the spinning producer starves the consumer and nothing prints. With Phase 1 the consumer prints `1`–`5` about a second apart.

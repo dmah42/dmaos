@@ -3,6 +3,7 @@
 #include "blk.h"
 #include "fbcon.h"
 #include "file.h"
+#include "input.h"
 #include "k_errno.h"
 #include "k_fcntl.h"
 #include "kernel.h"
@@ -11,7 +12,6 @@
 #include "process.h"
 #include "stdlib.h"
 #include "string.h"
-#include "timer.h"
 
 #define NINODE (50)
 #define SECTORS_PER_BLOCK (2)
@@ -1034,10 +1034,12 @@ int fs_read(int fd, uint8_t *buf, int n) {
   if (f->type == FD_CONSOLE) {
     for (int i = 0; i < n; ++i) {
       long ch;
-      // Input devices are polled, not interrupt driven, so there is nothing
-      // to wake a reader: sleep for a tick and poll again.
+      // The timer tick drains the input devices and wakes readers.
       while ((ch = getchar()) < 0) {
-        sleep_on(NULL, SCHED_TICK_MS);
+        int err = input_wait();
+        if (err < 0) {
+          return i > 0 ? i : err;
+        }
       }
       buf[i] = (uint8_t)ch;
     }
