@@ -36,18 +36,7 @@ Building upon our 64-bit RISC-V (`rv64imac` / SV39) port, this milestone transit
 ## 3. Memory & Kernel Relocation Architecture
 
 ### 3.1 Linker Script Parameterization
-The kernel linker script (`kernel/kernel.ld`) will support board-level physical relocation:
-
-```ld
-/* Configurable via preprocessor or Makefile BOARD flag */
-#ifdef BOARD_VISIONFIVE2
-    RAM_START = 0x40000000;
-    KERNEL_START = 0x40200000;
-#else
-    RAM_START = 0x80000000;
-    KERNEL_START = 0x80200000;
-#endif
-```
+The Makefile sets `KERNEL_BASE` and `RAM_BASE` per board (`0x40200000` / `0x40000000` for `BOARD=visionfive2`) and passes `KERNEL_BASE` to the linker script (`kernel/kernel.ld`) with `--defsym`.
 
 ### 3.2 Page Frame Allocator (`page.c`)
 - **Memory Probing**: The physical page allocator initializes starting from `__free_ram_start` up to available physical RAM (configurable, e.g., 256 MiB pool or probed via Device Tree / boot arguments).
@@ -61,17 +50,10 @@ dmaOS enforces a strict separation between immutable read-only system executable
 
 ### 4.1 Two-Tier Layout on Hardware
 
-```
-+-------------------------------------------------------------------------------+
-|                             Physical microSD Card                             |
-+-------------------+-----------------------------+-----------------------------+
-| Raw Boot Sectors  | Partition 1 (FAT32, ~64MB)  | Partition 2 (Raw dmaOS FS)  |
-| - SPL             | - kernel.bin (w/ embedded   | - Persistent /home data     |
-| - OpenSBI/U-Boot  |   read-only root disk.img)  |   (Device 1)                |
-| - uEnv.txt /      |                             | - Formatted with host mkfs  |
-|   boot.scr        |                             |   from data.img             |
-+-------------------+-----------------------------+-----------------------------+
-```
+- **Device 0** (root): `disk.img` on the FAT boot partition (partition 3), see §4.2.
+- **Device 1** (`/home`): partition 4 of the SD card.
+
+See §6.1 for the full card layout.
 
 ### 4.2 Device 0: In-Memory Initrd / Embedded Root Filesystem
 - **Concept**: The read-only root image (`disk.img`, containing `/bin/sh`, `/bin/doom`, `doom1.wad`, `/bin/cat`, configs) is either:
@@ -89,10 +71,8 @@ dmaOS enforces a strict separation between immutable read-only system executable
 ### 4.3 Device 1: Physical SD Card Persistent Partition
 - **Implementation**:
   - Driven by the **Synopsys DW-MMC (DesignWare Mobile Storage)** hardware driver.
-  - Translates sector requests `read_device(1, buf, sector)` and `write_device(1, buf, sector)` to physical block commands on the SD card starting at Partition 2's LBA offset.
-- **Host Flashing Workflow**:
-  - Host compiles `data.img` using `bin/mkfs`.
-  - Flashed to Partition 2 via `dd if=build/rv64/data.img of=/dev/sdX2 bs=1M status=progress`.
+  - Translates Device 1 sector reads and writes to SD card blocks offset by partition 4's start (sector 147456, `kernel/drivers/vf2_blk.c`).
+- **Host Flashing Workflow**: `tools/create_sdcard.sh` writes `data.img` (built by `bin/mkfs`) to partition 4.
 
 ---
 
@@ -164,45 +144,30 @@ Located at physical MMIO base `0x16030000` (GMAC0) and `0x16040000` (GMAC1).
 
 ## 6. Deployment & Boot Workflow
 
-### 6.1 microSD Card Partitioning Guide
-Using `fdisk` or `parted` on the development host:
+`tools/create_sdcard.sh` writes the card; see [visionfive2_setup.md](visionfive2_setup.md) for how to use it.
 
-```bash
-# Partition table layout for VisionFive 2:
-# Sector 0..4095: Reserved / Raw SPL & OpenSBI U-Boot Payload
-# Partition 1: 64MB FAT32 (Type 0x0C / 'c') -> /boot
-# Partition 2: 128MB+ Raw Linux / dmaOS FS (Type 0x83) -> /home
+### 6.1 microSD Card Layout
 
-sudo parted -s /dev/sdX mklabel gpt
-sudo parted -s /dev/sdX mkpart spl 0% 2MB
-sudo parted -s /dev/sdX mkpart uboot 2MB 6MB
-sudo parted -s /dev/sdX mkpart boot fat32 6MB 70MB
-sudo parted -s /dev/sdX mkpart home 70MB 100%
+| Partition | Sectors | Contents |
+|---|---|---|
+| 1 | 4096–8191 | SPL (only used in SD boot mode) |
+| 2 | 8192–16383 | U-Boot payload (only used in SD boot mode) |
+| 3 | 16384–147455 | FAT32 boot: `kernel.bin`, `disk.img`, `uEnv.txt`, `boot.scr` |
+| 4 | 147456–278527 | dmaOS FS `/home` (Device 1), written from `data.img` |
 
-# Write Bootloader SPL & U-Boot payload:
-sudo dd if=u-boot-spl.bin.normal.out of=/dev/sdX1 conv=fsync
-sudo dd if=visionfive2_fw_payload.img of=/dev/sdX2 conv=fsync
+The kernel hard-codes the `/home` start sector (`kernel/drivers/vf2_blk.c`).
 
-# Format and populate Partition 3 (/boot):
-sudo mkfs.vfat /dev/sdX3
-sudo mount /dev/sdX3 /mnt/boot
-sudo cp build/rv64/kernel.bin /mnt/boot/kernel.bin
-sudo cp tools/vf2/boot.scr /mnt/boot/boot.scr
-sudo umount /mnt/boot
+### 6.2 U-Boot Boot
 
-# Flash persistent template Partition 4 (/home):
-sudo dd if=build/rv64/data.img of=/dev/sdX4 bs=1M status=progress
-```
-
-### 6.2 U-Boot Boot Script (`boot.scr`)
-Standard U-Boot script placed on the boot partition:
+The board boots from QSPI flash, and its U-Boot loads `uEnv.txt` from partition 3. Its `bootcmd_dmaos` (and `boot.cmd`, compiled to `boot.scr`) runs:
 
 ```text
-echo "=== Booting dmaOS on StarFive VisionFive 2 ==="
-setenv kernel_addr 0x40200000
-fatload mmc 1:3 ${kernel_addr} kernel.bin
-go ${kernel_addr}
+fatload mmc 1:3 0x40200000 kernel.bin
+fatload mmc 1:3 0x46000000 disk.img
+go 0x40200000
 ```
+
+`disk.img` is the read-only root (Device 0), served from RAM by `kernel/drivers/initrd.c`.
 
 ---
 

@@ -55,7 +55,7 @@ oh, and it runs DOOM.
 - **Memory Architecture**: Execution from physical RAM base `0x40200000` (`RAM_BASE=0x40000000`) with custom linker map and U-Boot `boot.scr` script.
 - **Storage Subsystem**: Dedicated DesignWare Mobile Storage Host Controller (DW-MMC / SDIO) driver (`kernel/drivers/dw_mmc.c`) interacting directly with physical SD cards.
 - **Display Driver**: Linear simple-framebuffer driver (`kernel/drivers/simplefb.c`) binding runtime video memory parameters passed from U-Boot / Device Tree into the core framebuffer subsystem.
-- **Packaging & Deployment**: Automated image generation script (`tools/vf2/create_sdcard.sh`) preparing raw bootable GPT/MBR SD cards with SPL, U-Boot, and dmaOS partitions.
+- **Packaging & Deployment**: SD card script (`tools/create_sdcard.sh`) that partitions and writes a bootable GPT card with SPL, U-Boot, and dmaOS partitions.
 
 ### 7. Shell & Command Utilities
 - **dmash Shell**: Standard shell with configuration parsing (`/cfg/dmash.cfg`), command history traversal via arrow keys, path navigation, command pipelines (`cmd1 | cmd2`), and built-ins (`cd`, `clear`, `exit`, `kmesg`).
@@ -138,9 +138,9 @@ Install the LLVM toolchain (`clang`, `lld`, `llvm-objcopy`) and QEMU (`qemu-syst
   ```bash
   make ARCH=riscv64 BOARD=visionfive2 all
   ```
-- **Generate bootable SD card image**:
+- **Write a bootable SD card** (see [docs/visionfive2_setup.md](docs/visionfive2_setup.md)):
   ```bash
-  ./tools/vf2/create_sdcard.sh build/rv64-vf2/sdcard.img
+  sudo tools/create_sdcard.sh /dev/diskN
   ```
 - **Clean VisionFive 2 build artifacts**:
   ```bash

@@ -103,12 +103,12 @@ OS_TYPE="$(uname -s)"
 
 echo "==> Partitioning ${TARGET_DEV}..."
 if [[ "${OS_TYPE}" == "Linux" ]]; then
-    # Partition layout via parted on Linux
+    # Same sectors as macOS; the kernel expects /home at sector 147456.
     parted -s "${TARGET_DEV}" mklabel gpt
-    parted -s "${TARGET_DEV}" mkpart spl 0% 2MB
-    parted -s "${TARGET_DEV}" mkpart uboot 2MB 6MB
-    parted -s "${TARGET_DEV}" mkpart boot fat32 6MB 70MB
-    parted -s "${TARGET_DEV}" mkpart home 70MB 100%
+    parted -s "${TARGET_DEV}" mkpart spl 4096s 8191s
+    parted -s "${TARGET_DEV}" mkpart uboot 8192s 16383s
+    parted -s "${TARGET_DEV}" mkpart boot fat32 16384s 147455s
+    parted -s "${TARGET_DEV}" mkpart home 147456s 278527s
     
     sync
     sleep 1
@@ -152,9 +152,9 @@ if [[ "${OS_TYPE}" == "Linux" ]]; then
     umount "${MOUNT_POINT}"
     rmdir "${MOUNT_POINT}"
 
-    if [[ -f "${BUILD_DIR}/data.img" ]]; then
+    if [[ -f "${REPO_ROOT}/data.img" ]]; then
         echo "==> Flashing persistent /home filesystem template to ${HOME_PART}..."
-        dd if="${BUILD_DIR}/data.img" of="${HOME_PART}" bs=1M status=progress
+        dd if="${REPO_ROOT}/data.img" of="${HOME_PART}" bs=1M status=progress
     fi
 
 elif [[ "${OS_TYPE}" == "Darwin" ]]; then
@@ -167,10 +167,10 @@ elif [[ "${OS_TYPE}" == "Darwin" ]]; then
     SPL_GUID="${GPT_SPL_GUID:-2E54B353-1271-4842-806F-E436D6AF6985}"
     UBOOT_GUID="${GPT_UBOOT_GUID:-5B193300-FC78-40CD-8002-E86C45580B47}"
 
-    gpt add -b 4096 -s 4096 -t "${SPL_GUID}" "${TARGET_DEV}" || true
-    gpt add -b 8192 -s 8192 -t "${UBOOT_GUID}" "${TARGET_DEV}" || true
+    gpt add -b 4096 -s 4096 -t "${SPL_GUID}" "${TARGET_DEV}"
+    gpt add -b 8192 -s 8192 -t "${UBOOT_GUID}" "${TARGET_DEV}"
     gpt add -b 16384 -s 131072 -t EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 "${TARGET_DEV}"
-    gpt add -b 147456 -s 131072 -t 0FC63DAF-8483-4772-8E79-3D69D8477DE4 "${TARGET_DEV}" || true
+    gpt add -b 147456 -s 131072 -t 0FC63DAF-8483-4772-8E79-3D69D8477DE4 "${TARGET_DEV}"
 
     BOOT_PART="${TARGET_DEV}s3"
     HOME_PART="${TARGET_DEV}s4"
@@ -194,9 +194,9 @@ elif [[ "${OS_TYPE}" == "Darwin" ]]; then
     umount "${MOUNT_POINT}"
     rmdir "${MOUNT_POINT}"
 
-    if [[ -f "${BUILD_DIR}/data.img" ]]; then
+    if [[ -f "${REPO_ROOT}/data.img" ]]; then
         echo "==> Flashing persistent /home filesystem template to ${HOME_PART}..."
-        dd if="${BUILD_DIR}/data.img" of="${HOME_PART}" bs=1m
+        dd if="${REPO_ROOT}/data.img" of="${HOME_PART}" bs=1m
     fi
 fi
 
