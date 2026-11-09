@@ -753,10 +753,30 @@ void net_load_config(void) {
 }
 
 struct dns_query_state {
+  bool in_use;
+  bool abandoned; // sys_dns_lookup() returned before the callback
   bool done;
   err_t err;
   ip_addr_t addr;
 };
+
+// lwIP calls back exactly once per lookup, possibly after sys_dns_lookup() has
+// timed out or been interrupted, and has no way to cancel a lookup. So the
+// state it writes to can't live on the kernel stack. lwIP allows at most
+// DNS_TABLE_SIZE lookups in flight (its DNS_MAX_REQUESTS defaults to that), so
+// this pool can't run out first.
+static struct dns_query_state dns_queries[DNS_TABLE_SIZE];
+
+static struct dns_query_state *alloc_dns_query(void) {
+  for (int i = 0; i < DNS_TABLE_SIZE; ++i) {
+    if (!dns_queries[i].in_use) {
+      dns_queries[i] =
+          (struct dns_query_state){.in_use = true, .err = ERR_INPROGRESS};
+      return &dns_queries[i];
+    }
+  }
+  return NULL;
+}
 
 void dns_found_cb(_unused const char *name, const ip_addr_t *ipaddr,
                   void *callback_arg) {
@@ -768,7 +788,11 @@ void dns_found_cb(_unused const char *name, const ip_addr_t *ipaddr,
     state->err = ERR_VAL;
   }
   state->done = true;
-  wakeup(state); // sys_dns_lookup()
+  if (state->abandoned) {
+    state->in_use = false;
+  } else {
+    wakeup(state); // sys_dns_lookup()
+  }
 }
 
 int sys_dns_lookup(const char *name, uint32_t *ip_out) {
@@ -778,40 +802,46 @@ int sys_dns_lookup(const char *name, uint32_t *ip_out) {
 
   net_load_config();
 
-  ip_addr_t resolved;
-  struct dns_query_state state;
-  state.done = false;
-  state.err = ERR_INPROGRESS;
+  struct dns_query_state *state = alloc_dns_query();
+  if (state == NULL) {
+    return ERR_NOT_FOUND; // as when lwIP's own table is full
+  }
 
-  err_t err = dns_gethostbyname(name, &resolved, dns_found_cb, &state);
-  if (err == ERR_OK) {
-    *ip_out = ip_addr_get_ip4_u32(&resolved);
-    return 0;
-  } else if (err != ERR_INPROGRESS) {
+  ip_addr_t resolved;
+  err_t err = dns_gethostbyname(name, &resolved, dns_found_cb, state);
+  if (err != ERR_INPROGRESS) {
+    // Answered from the cache or failed at once; no callback will come.
+    state->in_use = false;
+    if (err == ERR_OK) {
+      *ip_out = ip_addr_get_ip4_u32(&resolved);
+      return 0;
+    }
     return ERR_NOT_FOUND;
   }
 
   uint32_t start_ms = uptime_ms();
-  while (!state.done) {
+  while (!state->done) {
     net_poll();
-    if (state.done) {
+    if (state->done) {
       break;
     }
     uint32_t elapsed_ms = uptime_ms() - start_ms;
     if (elapsed_ms > NET_DNS_TIMEOUT_MS) {
+      state->abandoned = true; // dns_found_cb frees it
       return ERR_IO;
     }
     // dns_found_cb wakes us from net_poll() on the timer tick.
-    int err = sleep_on(&state, NET_DNS_TIMEOUT_MS - elapsed_ms + 1);
+    int err = sleep_on(state, NET_DNS_TIMEOUT_MS - elapsed_ms + 1);
     if (err < 0) {
+      state->abandoned = true; // dns_found_cb frees it
       return err;
     }
   }
 
-  if (state.err == ERR_OK) {
-    *ip_out = ip_addr_get_ip4_u32(&state.addr);
+  state->in_use = false;
+  if (state->err == ERR_OK) {
+    *ip_out = ip_addr_get_ip4_u32(&state->addr);
     return 0;
   }
-
   return ERR_NOT_FOUND;
 }
