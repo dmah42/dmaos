@@ -191,7 +191,7 @@ This generates a `compile_commands.json` database at the workspace root, which t
   - Set up hardware timer interrupts using the RISC-V SBI timer interface.
   - Implement a preemptive scheduler to prevent infinite loops in user space from freezing the system.
 - [ ] **VisionFive 2 USB Keyboard**:
-  - Driver for the JH7110's USB host controller (Cadence USB 3 in xHCI mode), with device enumeration and the HID boot keyboard protocol.
+  - Driver for the USB-A ports: the JH7110's PCIe host controller (PLDA), the VL805 USB 3.0 controller behind it (xHCI), device enumeration and the HID boot keyboard protocol.
   - Implements `input_driver_init()` and `input_driver_poll_event()` from `kernel/input_driver.h` in place of `input_stub.c`; translation, buffering and `Ctrl+C` come from the shared input layer.
 - [ ] **Virtual Console Multiplexing (Multi-TTY)**:
   - Add virtual console session buffers and a keyboard router (switching active shell sessions via `Alt + F1/F2/F3`).
